@@ -64,7 +64,7 @@ class DroneNode(Node):
         self.get_logger().info('Drone node has been started')
 
         #frequency interval
-        self.declare_parameter('drone_node_frequency', 50)
+        self.declare_parameter('drone_node_frequency', 40)
         self.drone_node_frequency = self.get_parameter(
             'drone_node_frequency').get_parameter_value().integer_value
 
@@ -79,13 +79,13 @@ class DroneNode(Node):
                                     self.telem_publisher,
                                     self.drone_node_frequency)
         
-        self.__initSubscribers()
+        self.__initSubscribers()    
 
         self.vel_args = {}
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
-        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14551')
+        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14550')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
@@ -111,6 +111,8 @@ class DroneNode(Node):
             self.drone_node_frequency)
 
     def __telemCallback(self, msg:Telem) -> None:
+        
+        self.mode = msg.mode
         self.lat = msg.lat
         self.lon = msg.lon
         self.alt = msg.alt
@@ -151,17 +153,34 @@ class DroneNode(Node):
         vy_traj = msg.vy
         vz_traj = msg.vz
         idx_command = msg.idx
-        print("roll_traj: ", roll_traj)
+        print(idx_command)
+
+        # roll_rate_traj = roll_rate_traj[idx_command]
+        # pitch_rate_traj = pitch_rate_traj[idx_command]
+        # yaw_rate_traj = yaw_rate_traj[idx_command]
         
+        
+        guided_mode = '4'
+        guided_mode_list = ['4', '15']
+        
+
+        if self.mode not in guided_mode_list:
+        # if self.mode != guided_mode:
+            print("not in guided mode")
+            return 
+
         if self.DroneType == 'VTOL':
-            print("idx_command: ", idx_command)
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
-
-            print("roll_cmd: ", roll_cmd)
-            print("pitch_cmd: ", pitch_cmd)
-
+        
+            
+        
+            print("desired roll: ", roll_cmd)
+            print("desired pitch: ", pitch_cmd)
+            print("desired yaw: ", yaw_cmd)
+            print("current yaw: ", np.rad2deg(self.attitudes[2]))
+        
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
@@ -174,11 +193,22 @@ class DroneNode(Node):
             
             # print(vel_args)        
             self.commander.sendNEDVelocity(vel_args)
+            
+        return 
 
     def sendAttitudeTarget(self, roll_angle=0.0, pitch_angle=0.0,
                          yaw_angle=None, yaw_rate=0.0, use_yaw_rate=False,
                          thrust=0.5, body_roll_rate=0.0, body_pitch_rate=0.0):
-
+        """
+        IMPORTANT YAW COMMAND NOTES:
+        If yaw is positive the drone will rotate clock wise since it is in NED position,
+        if negative it will rotate counter clock wise.
+        Keep in mind the yaw command does not change the heading of the drone, but 
+        makes it rotate constantly at the specificed angle. The higher the angle,
+        the tighter the rotation. If you do not regulate roll the drone will 
+        either climb up in a spiral or descend in a spiral. Depending on the sign
+        
+        """
         master = self.master 
 
         if yaw_angle is None:
@@ -197,7 +227,6 @@ class DroneNode(Node):
             thrust
         )
 
-
     def beginTakeoffLand(self, altitude: float) -> None:
         self.commander.takeoff(altitude)
       
@@ -205,29 +234,28 @@ def main(args=None):
     rclpy.init(args=args)
     
     drone_node = DroneNode()
-    drone_commander = drone_node.commander
+    # drone_commander = drone_node.commander
     drone_info = drone_node.drone_info
     print("connected to drone")
 
-    # arm_args = {'arm_disarm': 1}
-    # drone_commander.armDisarm(arm_args)
-    
-    # mode_args = {'mode': 'GUIDED'}
-    # drone_commander.changeFlightMode(mode_args)
-    # takeoff_args = {'altitude': 15}    
-    
-    # for i in range(100):
-    #     drone_commander.takeoff(takeoff_args)
-    #     rclpy.spin_once(drone_node, timeout_sec=0.1)
-        
-    # vel_args = {'vx': 5, 'vy': 0, 'vz': 0, 'set_vz': False}
-    # drone_commander.sendNEDVelocity(vel_args)
-
     # rclpy.spin(drone_node)
     while rclpy.ok():
-        drone_info.publishTelemInfo()
-        rclpy.spin_once(drone_node, timeout_sec=0.1)
+        try:
+            drone_info.publishTelemInfo()
+            #print roll and pitch angles
+            
+            # drone_node.sendAttitudeTarget(roll_angle=0.0,
+            #                                 pitch_angle=0.0,
+            #                                 yaw_angle=-45,
+            #                                 thrust=0.5)
+            
+            rclpy.spin_once(drone_node, timeout_sec=0.01)
 
+        #check ctrl+c
+        except KeyboardInterrupt:
+            print("Shutting down")
+            return 
+        
 
 if __name__ == '__main__':
     main()        
