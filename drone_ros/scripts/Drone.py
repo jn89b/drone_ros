@@ -64,7 +64,7 @@ class DroneNode(Node):
         self.get_logger().info('Drone node has been started')
 
         #frequency interval
-        self.declare_parameter('drone_node_frequency', 40)
+        self.declare_parameter('drone_node_frequency', 50)
         self.drone_node_frequency = self.get_parameter(
             'drone_node_frequency').get_parameter_value().integer_value
 
@@ -106,7 +106,7 @@ class DroneNode(Node):
         
         self.traj_sub = self.create_subscription(
             CtlTraj,
-            'trajectory',
+            'avoid_trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
 
@@ -144,7 +144,7 @@ class DroneNode(Node):
         roll_traj = msg.roll
         pitch_traj = msg.pitch
         yaw_traj = msg.yaw
-
+        
         roll_rate_traj = msg.roll_rate
         pitch_rate_traj = msg.pitch_rate
         yaw_rate_traj = msg.yaw_rate
@@ -160,26 +160,26 @@ class DroneNode(Node):
         # yaw_rate_traj = yaw_rate_traj[idx_command]
         
         
-        guided_mode = '4'
-        guided_mode_list = ['4', '15']
+        # guided_mode = '4'
+        # guided_mode_list = ['4', '15']
         
 
-        if self.mode not in guided_mode_list:
-        # if self.mode != guided_mode:
-            print("not in guided mode")
-            return 
+        # if self.mode not in guided_mode_list:
+        # # if self.mode != guided_mode:
+        #     print("not in guided mode")
+        #     return 
 
         if self.DroneType == 'VTOL':
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
         
-            
+            yaw_cmd = 0.0
         
             print("desired roll: ", roll_cmd)
             print("desired pitch: ", pitch_cmd)
             print("desired yaw: ", yaw_cmd)
-            print("current yaw: ", np.rad2deg(self.attitudes[2]))
+            # print("current yaw: ", np.rad2deg(self.attitudes[2]))
         
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
@@ -234,14 +234,17 @@ def main(args=None):
     rclpy.init(args=args)
     
     drone_node = DroneNode()
+    
     # drone_commander = drone_node.commander
-    drone_info = drone_node.drone_info
+    # drone_info = drone_node.drone_info
+    
     print("connected to drone")
 
+    rclpy.spin_once(drone_node, timeout_sec=0.05)
     # rclpy.spin(drone_node)
     while rclpy.ok():
         try:
-            drone_info.publishTelemInfo()
+            # drone_info.publishTelemInfo()
             #print roll and pitch angles
             
             # drone_node.sendAttitudeTarget(roll_angle=0.0,
@@ -249,7 +252,8 @@ def main(args=None):
             #                                 yaw_angle=-45,
             #                                 thrust=0.5)
             
-            rclpy.spin_once(drone_node, timeout_sec=0.01)
+            rclpy.spin(drone_node)
+            #rclpy.spin_until_future_complete(drone_node, timeout_sec=0.05)
 
         #check ctrl+c
         except KeyboardInterrupt:

@@ -16,7 +16,7 @@ import datetime
 from nav_msgs.msg import Odometry
 
 from drone_ros import quaternion_tools
-from drone_ros.msg import Telem, CtlTraj
+from drone_interfaces.msg import Telem, CtlTraj
 
 from mpc_ros import Config
 
@@ -87,7 +87,7 @@ class LoggerNode(Node):
 		
 		self.traj_sub = self.create_subscription(
 						CtlTraj,
-						'trajectory',
+						'avoid_trajectory',
 						self.ctl_traj_callback,
 						qos_profile=SENSOR_QOS)
 
@@ -120,7 +120,7 @@ class LoggerNode(Node):
 		self.goal_y = []
 		self.goal_z = []
 
-		self.obstacles = Config.OBSTACLES
+		# self.obstacles = Config.OBSTACLES
 
 	def odom_callback(self,msg):
 		"""subscribe to odometry"""
@@ -179,7 +179,7 @@ class LoggerNode(Node):
 			'roll_cmd': self.roll_cmd,
 			'pitch_cmd': self.pitch_cmd,
 			'yaw_cmd': self.yaw_cmd,
-			'obstacles': self.obstacles
+			# 'obstacles': self.obstacles
 			}
 				
 		df = pd.DataFrame.from_dict(info_dict, orient='index')
