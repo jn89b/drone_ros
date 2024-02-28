@@ -10,6 +10,11 @@ from drone_ros.Commander import Commander
 from drone_ros.DroneInfo import DroneInfo
 from drone_interfaces.msg import Telem, CtlTraj
 # from drone_ros.srv import getGSInfo
+import ros_mpc.rotation_utils as rot_utils
+from ros_mpc.aircraft_config import GOAL_STATE
+
+import mavros
+from mavros.base import SENSOR_QOS
 
 from drone_ros.DroneInterfaceModel import DroneInterfaceModel
 
@@ -82,6 +87,25 @@ class DroneNode(Node):
         self.__initSubscribers()    
 
         self.vel_args = {}
+        self.old_thrust = 0.5
+        self.old_velocity = 20.0
+        
+        self.state_info =[
+            None, #x
+            None, #y
+            None, #z
+            None, #phi
+            None, #theta
+            None, #psi
+            None, #airspeed
+        ]
+
+        self.control_info = [
+            None, #u_phi
+            None, #u_theta
+            None, #u_psi
+            None  #v_cmd
+        ]
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
@@ -98,43 +122,83 @@ class DroneNode(Node):
             Telem, 'telem', self.drone_node_frequency)        
 
     def __initSubscribers(self) -> None:
-        self.telem_sub = self.create_subscription(
-            Telem,
-            'telem',
-            self.__telemCallback,
-            self.drone_node_frequency)
+        # self.telem_sub = self.create_subscription(
+        #     Telem,
+        #     'telem',
+        #     self.__telemCallback,
+        #     self.drone_node_frequency)
+        
+        self.state_sub = self.create_subscription(mavros.local_position.Odometry,
+                                                'mavros/local_position/odom', 
+                                                self.__telemCallback, 
+                                                qos_profile=SENSOR_QOS)
         
         self.traj_sub = self.create_subscription(
             CtlTraj,
-            'avoid_trajectory',
+            'directional_trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
+        
+        # self.traj_sub = self.create_subscription(
+        #     CtlTraj,
+        #     'directional_trajectory',
+        #     self.__trajCallback,
+        #     self.drone_node_frequency)
 
     def __telemCallback(self, msg:Telem) -> None:
         
-        self.mode = msg.mode
-        self.lat = msg.lat
-        self.lon = msg.lon
-        self.alt = msg.alt
+        # self.mode = msg.mode
+        # self.lat = msg.lat
+        # self.lon = msg.lon
+        # self.alt = msg.alt
         
-        self.ground_vel = [msg.vx, 
-                           msg.vy, 
-                           msg.vz]
+        # self.ground_vel = [msg.vx, 
+        #                    msg.vy, 
+        #                    msg.vz]
         
-        self.heading = msg.heading
+        # self.heading = msg.heading
         
-        self.attitudes = [msg.roll, 
-                          msg.pitch, 
-                          msg.yaw]
+        # self.attitudes = [msg.roll, 
+        #                   msg.pitch, 
+        #                   msg.yaw]
         
-        self.attitude_rates = [msg.roll_rate, 
-                               msg.pitch_rate, 
-                               msg.yaw_rate]
+        # self.attitude_rates = [msg.roll_rate, 
+        #                        msg.pitch_rate, 
+        #                        msg.yaw_rate]
         
-        self.ned_position = [msg.x,
-                             msg.y,
-                             msg.z]
+        # self.ned_position = [msg.x,
+        #                      msg.y,
+        #                      msg.z]
         
+        #TODO: refactor this method here
+
+        # positions
+        self.state_info[0] = msg.pose.pose.position.x
+        self.state_info[1] = msg.pose.pose.position.y
+        self.state_info[2] = msg.pose.pose.position.z
+
+        # quaternion attitudes
+        qx = msg.pose.pose.orientation.x
+        qy = msg.pose.pose.orientation.y
+        qz = msg.pose.pose.orientation.z
+        qw = msg.pose.pose.orientation.w
+        roll, pitch, yaw = rot_utils.euler_from_quaternion(
+            qx, qy, qz, qw)
+
+        self.state_info[3] = roll
+        self.state_info[4] = pitch
+        self.state_info[5] = yaw  # (yaw+ (2*np.pi) ) % (2*np.pi);
+
+        vx = msg.twist.twist.linear.x
+        vy = msg.twist.twist.linear.y
+        vz = msg.twist.twist.linear.z
+        self.state_info[6] = np.sqrt(vx**2 + vy**2 + vz**2)
+
+        #rotate roll and pitch rates to ENU frame   
+        self.control_info[0] = msg.twist.twist.angular.x
+        self.control_info[1] = msg.twist.twist.angular.y
+        self.control_info[2] = msg.twist.twist.angular.z
+        self.control_info[3] = msg.twist.twist.linear.x
 
     def __trajCallback(self, msg: CtlTraj):
         x_traj = msg.x
@@ -152,9 +216,11 @@ class DroneNode(Node):
         vx_traj = msg.vx
         vy_traj = msg.vy
         vz_traj = msg.vz
+        
+
         idx_command = msg.idx
         print(idx_command)
-
+        print("vx traj: ", vx_traj[idx_command])
         # roll_rate_traj = roll_rate_traj[idx_command]
         # pitch_rate_traj = pitch_rate_traj[idx_command]
         # yaw_rate_traj = yaw_rate_traj[idx_command]
@@ -168,23 +234,56 @@ class DroneNode(Node):
         # # if self.mode != guided_mode:
         #     print("not in guided mode")
         #     return 
+        
+        if self.state_info[0] is None:
+            return
 
         if self.DroneType == 'VTOL':
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
+
+            yaw_current = np.rad2deg(self.state_info[5])
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
         
-            yaw_cmd = 0.0
-        
+            yaw_desired = yaw_cmd - yaw_current
+            if yaw_desired > 180:
+                yaw_desired = yaw_desired - 360
+            elif yaw_desired < -180:
+                yaw_desired = yaw_desired + 360
+                
+            #keep in mind z is negative positive 
+            error_z = z_traj[idx_command] + GOAL_STATE[2]
+
+            lateral_error = np.sqrt((x_traj[idx_command] - self.state_info[0])**2 +
+                                    (y_traj[idx_command] - self.state_info[1])**2)
+            
+            pitch_desired = np.rad2deg(np.arctan2(error_z, lateral_error))
+            pitch_set = (pitch_desired - pitch_cmd)
+            
             print("desired roll: ", roll_cmd)
-            print("desired pitch: ", pitch_cmd)
-            print("desired yaw: ", yaw_cmd)
+            print("desired pitch: ", pitch_set)
+            print("desired yaw: ", yaw_desired)
             # print("current yaw: ", np.rad2deg(self.attitudes[2]))
-        
+            airspeed_control = vx_traj[idx_command]#self.control_info[3]
+            print("airspeed control: ", airspeed_control)
+            
+            # self.send_airspeed_command(airspeed_control)
+                        
+            # z_tolerance = 10.0
+            # print("error z: ", error_z)
+            
+            thrust = self.map_thrust(airspeed_control)
+
+
+            
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
-                                    yaw_angle=yaw_cmd,
-                                    thrust=0.5)
+                                    yaw_angle=yaw_desired,
+                                    thrust=thrust)
+            self.old_thrust = thrust        
+            self.old_velocity = airspeed_control
+            
+
         else:
             vel_args = {'vx': vx_traj[idx_command],
                         'vy': vy_traj[idx_command],
@@ -227,6 +326,38 @@ class DroneNode(Node):
             thrust
         )
 
+
+    def map_thrust(self, desired_vel:float) -> float:
+        vel_max = 25
+        vel_min = 15
+        
+        thrust_min = 0.25
+        thrust_max = 0.75
+        
+        thrust = thrust_min + ((thrust_max - thrust_min) * (desired_vel - vel_min) / (vel_max - vel_min)) 
+        
+        if thrust > thrust_max:
+            thrust = thrust_max
+        elif thrust < thrust_min:
+            thrust = thrust_min
+        
+        return thrust
+
+    def send_airspeed_command(self, airspeed:float) -> None:
+        master = self.master
+        
+        master.mav.command_long_send(
+        master.target_system, 
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED, #command
+        0, #confirmation
+        0, #Speed type (0=Airspeed, 1=Ground Speed, 2=Climb Speed, 3=Descent Speed)
+        airspeed, #Speed #m/s
+        -1, #Throttle (-1 indicates no change) % 
+        0, 0, 0, 0 #ignore other parameters
+        )
+        print("change airspeed", airspeed)
+
     def beginTakeoffLand(self, altitude: float) -> None:
         self.commander.takeoff(altitude)
       
@@ -240,13 +371,17 @@ def main(args=None):
     
     print("connected to drone")
 
-    rclpy.spin_once(drone_node, timeout_sec=0.05)
-    # rclpy.spin(drone_node)
+    rclpy.spin(drone_node)
     while rclpy.ok():
         try:
+            # if drone_node.state_info[0] is None:
+            #     print("waiting for telem info")
+            #     rclpy.spin(drone_node, timeout_sec=1.0)
+            #     continue
             # drone_info.publishTelemInfo()
             #print roll and pitch angles
-            
+            print("sending commands")
+            #drone_node.send_airspeed_command(airspeed=25.0)
             # drone_node.sendAttitudeTarget(roll_angle=0.0,
             #                                 pitch_angle=0.0,
             #                                 yaw_angle=-45,
