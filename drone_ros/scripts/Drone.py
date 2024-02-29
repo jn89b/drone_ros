@@ -5,6 +5,7 @@ import numpy as np
 import math
 from pymavlink import mavutil
 from rclpy.node import Node
+import pandas as pd
 from drone_ros.quaternion_tools import get_euler_from_quaternion, get_quaternion_from_euler
 from drone_ros.Commander import Commander
 from drone_ros.DroneInfo import DroneInfo
@@ -12,6 +13,9 @@ from drone_interfaces.msg import Telem, CtlTraj
 # from drone_ros.srv import getGSInfo
 import ros_mpc.rotation_utils as rot_utils
 from ros_mpc.aircraft_config import GOAL_STATE
+
+from geometry_msgs.msg import PoseArray
+from std_msgs.msg import Float64
 
 import mavros
 from mavros.base import SENSOR_QOS
@@ -86,6 +90,7 @@ class DroneNode(Node):
         
         self.__initSubscribers()    
 
+        self.__init_variables()
         self.vel_args = {}
         self.old_thrust = 0.5
         self.old_velocity = 20.0
@@ -117,25 +122,96 @@ class DroneNode(Node):
         self.master = mavutil.mavlink_connection(self.mav_connection_string)
         self.master.wait_heartbeat()
 
+    def __init_variables(self) -> None:	
+        
+        self.effector_dmg_curr = -1.0
+        self.effector_x = []
+        self.effector_y = []
+        self.effector_z = []
+        
+        self.cost_val = 1E10
+        self.time_solution = -100
+        
+        self.time = []
+        self.x_pos_history = []
+        self.y_pos_history = []
+        self.z_pos_history = []
+        self.roll_history = []
+        self.pitch_history = []
+        self.yaw_history = []
+        self.vel_history = []
+
+        self.x_traj_history = []
+        self.y_traj_history = []
+        self.z_traj_history = []
+        self.roll_traj_history = []
+        self.pitch_traj_history = []
+        self.yaw_traj_history = []
+
+        self.x_cmd_history = []
+        self.y_cmd_history = []
+        self.z_cmd_history = []
+        self.roll_cmd_history = []
+        self.pitch_cmd_history = []
+        self.yaw_cmd_history = []
+        self.vel_cmd_history = []
+
+        self.goal_x_history = []
+        self.goal_y_history = []
+        self.goal_z_history = []
+
+        self.effector_dmg_history = []
+        self.effector_x_history = []
+        self.effector_y_history = []
+        self.effector_z_history = []
+
+        self.cost_val_history = []
+        self.time_solution_history = []
+
     def __initPublishers(self)-> None:
         self.telem_publisher = self.create_publisher(
             Telem, 'telem', self.drone_node_frequency)        
 
     def __initSubscribers(self) -> None:
-        # self.telem_sub = self.create_subscription(
-        #     Telem,
-        #     'telem',
-        #     self.__telemCallback,
-        #     self.drone_node_frequency)
         
         self.state_sub = self.create_subscription(mavros.local_position.Odometry,
                                                 'mavros/local_position/odom', 
                                                 self.__telemCallback, 
                                                 qos_profile=SENSOR_QOS)
         
+        self.effector_dmg_sub = self.create_subscription(
+                        Float64,
+                        '/damage_info',
+                        self.effector_dmg_callback,
+                        self.drone_node_frequency)
+  
+        self.effector_location_sub = self.create_subscription(
+            PoseArray, 
+            '/effector_location',
+            self.effector_pos_callback,
+            self.drone_node_frequency)
+
+        self.time_solution_sub = self.create_subscription(
+            Float64,
+            '/waypoint_time_sol',
+            self.time_solution_callback,
+            self.drone_node_frequency)
+        
+        # self.traj_sub = self.create_subscription(
+        #     CtlTraj,
+        #     'directional_trajectory',
+        #     self.__trajCallback,
+        #     self.drone_node_frequency)
+        
+        # self.traj_sub = self.create_subscription(
+        #     CtlTraj,
+        #     'omni_trajectory',
+        #     self.__trajCallback,
+        #     self.drone_node_frequency)
+        
         self.traj_sub = self.create_subscription(
             CtlTraj,
-            'directional_trajectory',
+            'waypoint_trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
         
@@ -145,31 +221,58 @@ class DroneNode(Node):
         #     self.__trajCallback,
         #     self.drone_node_frequency)
 
+    def update_history(self) -> None:
+        """update the history of the state and control variables"""
+        self.x_pos_history.append(self.state_info[0])
+        self.y_pos_history.append(self.state_info[1])
+        self.z_pos_history.append(self.state_info[2])
+        self.roll_history.append(self.state_info[3])
+        self.pitch_history.append(self.state_info[4])
+        self.yaw_history.append(self.state_info[5])
+        self.vel_history.append(self.state_info[6])
+        self.x_traj_history.append(self.x_traj_curr)
+        self.y_traj_history.append(self.y_traj_curr)
+        self.z_traj_history.append(self.z_traj_curr)
+        self.roll_traj_history.append(self.roll_traj_curr)
+        self.pitch_traj_history.append(self.pitch_traj_curr)
+        self.yaw_traj_history.append(self.yaw_traj_curr)
+
+        self.x_cmd_history.append(self.x_cmd_curr)
+        self.y_cmd_history.append(self.y_cmd_curr)
+        self.z_cmd_history.append(self.z_cmd_curr)
+        self.roll_cmd_history.append(self.roll_cmd_curr)
+        self.pitch_cmd_history.append(self.pitch_cmd_curr)
+        self.yaw_cmd_history.append(self.yaw_cmd_curr)
+        self.vel_cmd_history.append(self.vel_cmd_curr)
+
+        self.effector_dmg_history.append(self.effector_dmg_curr)
+        self.effector_x_history.append(self.effector_x)
+        self.effector_y_history.append(self.effector_y)
+        self.effector_z_history.append(self.effector_z)
+        
+        self.cost_val_history.append(self.cost_val)
+        self.time_solution_history.append(self.time_solution)
+  
+    def effector_dmg_callback(self,msg: Float64):
+        self.effector_dmg_curr = msg.data
+
+    def effector_pos_callback(self,msg: PoseArray):
+        poses = msg.poses
+        x_position = []
+        y_position = []
+        z_position = []
+        for pose in poses:
+
+            x_position.append(pose.position.x)
+            y_position.append(pose.position.y)
+            z_position.append(pose.position.z)
+            # self.effector_pos_curr.append([pose.position.x, pose.position.y, pose.position.z])
+        self.effector_x = x_position
+        self.effector_y = y_position
+        self.effector_z = z_position
+
+
     def __telemCallback(self, msg:Telem) -> None:
-        
-        # self.mode = msg.mode
-        # self.lat = msg.lat
-        # self.lon = msg.lon
-        # self.alt = msg.alt
-        
-        # self.ground_vel = [msg.vx, 
-        #                    msg.vy, 
-        #                    msg.vz]
-        
-        # self.heading = msg.heading
-        
-        # self.attitudes = [msg.roll, 
-        #                   msg.pitch, 
-        #                   msg.yaw]
-        
-        # self.attitude_rates = [msg.roll_rate, 
-        #                        msg.pitch_rate, 
-        #                        msg.yaw_rate]
-        
-        # self.ned_position = [msg.x,
-        #                      msg.y,
-        #                      msg.z]
-        
         #TODO: refactor this method here
 
         # positions
@@ -208,33 +311,15 @@ class DroneNode(Node):
         roll_traj = msg.roll
         pitch_traj = msg.pitch
         yaw_traj = msg.yaw
-        
-        roll_rate_traj = msg.roll_rate
-        pitch_rate_traj = msg.pitch_rate
-        yaw_rate_traj = msg.yaw_rate
-
+    
         vx_traj = msg.vx
         vy_traj = msg.vy
         vz_traj = msg.vz
-        
 
         idx_command = msg.idx
         print(idx_command)
-        print("vx traj: ", vx_traj[idx_command])
-        # roll_rate_traj = roll_rate_traj[idx_command]
-        # pitch_rate_traj = pitch_rate_traj[idx_command]
-        # yaw_rate_traj = yaw_rate_traj[idx_command]
-        
-        
-        # guided_mode = '4'
-        # guided_mode_list = ['4', '15']
-        
+    
 
-        # if self.mode not in guided_mode_list:
-        # # if self.mode != guided_mode:
-        #     print("not in guided mode")
-        #     return 
-        
         if self.state_info[0] is None:
             return
 
@@ -259,30 +344,20 @@ class DroneNode(Node):
             
             pitch_desired = np.rad2deg(np.arctan2(error_z, lateral_error))
             pitch_set = (pitch_desired - pitch_cmd)
-            
+
+            airspeed_control = vx_traj[idx_command]#self.control_info[3]            
             print("desired roll: ", roll_cmd)
             print("desired pitch: ", pitch_set)
             print("desired yaw: ", yaw_desired)
-            # print("current yaw: ", np.rad2deg(self.attitudes[2]))
-            airspeed_control = vx_traj[idx_command]#self.control_info[3]
             print("airspeed control: ", airspeed_control)
-            
-            # self.send_airspeed_command(airspeed_control)
-                        
-            # z_tolerance = 10.0
-            # print("error z: ", error_z)
-            
             thrust = self.map_thrust(airspeed_control)
 
-
-            
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_desired,
                                     thrust=thrust)
             self.old_thrust = thrust        
             self.old_velocity = airspeed_control
-            
 
         else:
             vel_args = {'vx': vx_traj[idx_command],
@@ -293,6 +368,21 @@ class DroneNode(Node):
             # print(vel_args)        
             self.commander.sendNEDVelocity(vel_args)
             
+        self.x_traj_curr = x_traj
+        self.y_traj_curr = y_traj
+        self.z_traj_curr = z_traj
+        self.roll_traj_curr = roll_traj
+        self.pitch_traj_curr = pitch_traj
+        self.yaw_traj_curr = yaw_traj
+        
+        self.vel_cmd_curr = vx_traj[idx_command]
+        self.x_cmd_curr = x_traj[idx_command]
+        self.y_cmd_curr = y_traj[idx_command]
+        self.z_cmd_curr = z_traj[idx_command]
+        self.roll_cmd_curr = roll_traj[idx_command]
+        self.pitch_cmd_curr = pitch_traj[idx_command]
+        self.yaw_cmd_curr = yaw_traj[idx_command]
+        self.update_history()    
         return 
 
     def sendAttitudeTarget(self, roll_angle=0.0, pitch_angle=0.0,
@@ -334,7 +424,8 @@ class DroneNode(Node):
         thrust_min = 0.25
         thrust_max = 0.75
         
-        thrust = thrust_min + ((thrust_max - thrust_min) * (desired_vel - vel_min) / (vel_max - vel_min)) 
+        thrust = thrust_min + ((thrust_max - thrust_min) * \
+            (desired_vel - vel_min) / (vel_max - vel_min)) 
         
         if thrust > thrust_max:
             thrust = thrust_max
@@ -361,6 +452,13 @@ class DroneNode(Node):
     def beginTakeoffLand(self, altitude: float) -> None:
         self.commander.takeoff(altitude)
       
+    def cost_val_callback(self,msg: Float64):
+        self.cost_val = msg.data
+
+    def time_solution_callback(self,msg: Float64):
+        self.time_solution = msg.data
+        
+
 def main(args=None):
     rclpy.init(args=args)
     
@@ -371,7 +469,7 @@ def main(args=None):
     
     print("connected to drone")
 
-    rclpy.spin(drone_node)
+    rclpy.spin_once(drone_node)
     while rclpy.ok():
         try:
             # if drone_node.state_info[0] is None:
@@ -387,13 +485,82 @@ def main(args=None):
             #                                 yaw_angle=-45,
             #                                 thrust=0.5)
             
-            rclpy.spin(drone_node)
+            rclpy.spin_once(drone_node, timeout_sec=0.05)
             #rclpy.spin_until_future_complete(drone_node, timeout_sec=0.05)
 
         #check ctrl+c
         except KeyboardInterrupt:
+            #if we get a keyboard interrupt, close the node
+            
+            #save history to df and csv
+            print("saving history to csv")
+            print(drone_node.x_traj_history)
+            df = pd.DataFrame({
+                'x_pos': drone_node.x_pos_history,
+                'y_pos': drone_node.y_pos_history,
+                'z_pos': drone_node.z_pos_history,
+                'roll': drone_node.roll_history,
+                'pitch': drone_node.pitch_history,
+                'yaw': drone_node.yaw_history,
+                'vel': drone_node.vel_history,
+                'x_traj': drone_node.x_traj_history,
+                'y_traj': drone_node.y_traj_history,
+                'z_traj': drone_node.z_traj_history,
+                'roll_traj': drone_node.roll_traj_history,
+                'pitch_traj': drone_node.pitch_traj_history,
+                'yaw_traj': drone_node.yaw_traj_history,
+                'x_cmd': drone_node.x_cmd_history,
+                'y_cmd': drone_node.y_cmd_history,
+                'z_cmd': drone_node.z_cmd_history,
+                'roll_cmd': drone_node.roll_cmd_history,
+                'pitch_cmd': drone_node.pitch_cmd_history,
+                'yaw_cmd': drone_node.yaw_cmd_history,
+                'vel_cmd': drone_node.vel_cmd_history,
+                'effector_dmg': drone_node.effector_dmg_history,
+                'effector_x': drone_node.effector_x_history,
+                'effector_y': drone_node.effector_y_history,
+                'effector_z': drone_node.effector_z_history,
+                'cost': drone_node.cost_val_history,
+                'time_solution': drone_node.time_solution_history
+            })
+            df.to_csv('drone_history.csv')
+            
             print("Shutting down")
-            return 
+        
+        # finally:
+        #     #save history to df and csv
+        #     print("saving history to csv")
+        #     df = pd.DataFrame({
+        #         'x_pos': drone_node.x_pos_history,
+        #         'y_pos': drone_node.y_pos_history,
+        #         'z_pos': drone_node.z_pos_history,
+        #         'roll': drone_node.roll_history,
+        #         'pitch': drone_node.pitch_history,
+        #         'yaw': drone_node.yaw_history,
+        #         'vel': drone_node.vel_history,
+        #         'x_traj': drone_node.x_traj_history,
+        #         'y_traj': drone_node.y_traj_history,
+        #         'z_traj': drone_node.z_traj_history,
+        #         'roll_traj': drone_node.roll_traj_history,
+        #         'pitch_traj': drone_node.pitch_traj_history,
+        #         'yaw_traj': drone_node.yaw_traj_history,
+        #         'x_cmd': drone_node.x_cmd_history,
+        #         'y_cmd': drone_node.y_cmd_history,
+        #         'z_cmd': drone_node.z_cmd_history,
+        #         'roll_cmd': drone_node.roll_cmd_history,
+        #         'pitch_cmd': drone_node.pitch_cmd_history,
+        #         'yaw_cmd': drone_node.yaw_cmd_history,
+        #         'vel_cmd': drone_node.vel_cmd_history,
+        #         'effector_dmg': drone_node.effector_dmg_history,
+        #         'effector_x': drone_node.effector_x_history,
+        #         'effector_y': drone_node.effector_y_history,
+        #         'effector_z': drone_node.effector_z_history
+        #     })
+        #     df.to_csv('drone_history.csv')
+            
+        #     print("Shutting down")
+        #     drone_node.destroy_node()
+        #     rclpy.shutdown()
         
 
 if __name__ == '__main__':

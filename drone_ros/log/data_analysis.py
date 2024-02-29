@@ -4,12 +4,32 @@
 Created on Sun Feb 25 20:35:59 2024
 
 @author: justin
+
+Show the following 
+
 """
 
 import pandas as pd
 import re
-
+import numpy as np
 import matplotlib.pyplot as plt
+import ast
+
+from DataParser import DataParser
+
+GOAL_X = 200
+GOAL_Y = 200
+GOAL_Z = 50
+
+def string_to_array(input_str):
+    # Extract the type code from the input string
+    type_code = input_str.split("('")[1][0]
+    # Extract the list of elements from the input string
+    elements_str = input_str.split(", [")[1].rstrip("])")
+    elements_list = ast.literal_eval(f"[{elements_str}]")
+    
+    # Create and return the array
+    return elements_list
 
 def turn_to_float(num_str) -> list:
     # Step 1: Remove the square brackets
@@ -26,39 +46,50 @@ def turn_to_float(num_str) -> list:
     
     return num_list_float
 
-df = pd.read_csv('avoid_traj_states.csv')
-mpc_traj = pd.read_csv('avoid_traj_history.csv')
 
-#get first row
-idx = 30
-first_row = df.iloc[idx] 
-x = first_row['x']
-y = first_row['y']
-z = first_row['z']
+file_names = ['vanilla_mpc', 'directional_mpc', 'mpc_with_obstacles_and_waypoints']
+folder_dir = 'vanilla_mpc/'
 
-first_traj_row = mpc_traj.iloc[idx]
-#convert string to numpy array
-x_traj = turn_to_float(first_traj_row['x'])
-y_traj = turn_to_float(first_traj_row['y'])
-z_traj = turn_to_float(first_traj_row['z'])
+file_desired = file_names[0]
+df = pd.read_csv(file_desired+'.csv')
+df.dropna(subset=['x_traj'], inplace=True)
 
 
-#plot the trajectory
-fig, ax = plt.subplots()
-ax.scatter(x, y, label='Drone')
-ax.plot(x_traj, y_traj, label='MPC')
 
-ax.set(xlabel='x', ylabel='y',
-         title='Drone Trajectory')
-ax.grid()
+data_parser = DataParser(save_figure=True, folder_dir=folder_dir)
+df = data_parser.get_time_vector(df)
+df = data_parser.convert_traj_to_enu(df)
+plt.close('all')
+
+#%% 
+#plot the 3D trajectory
+fig, ax = data_parser.plot_3d_trajectory(df, use_time=True, title='Overall Aircraft Trajectory')
+ax.scatter(GOAL_X, GOAL_Y, GOAL_Z, label='Goal', color='r')
+ax.set_xlim(-200, 200)
+ax.set_ylim(-200, 200)
+ax.set_zlim(0, 100)
 ax.legend()
 
-
-x_history = df['x']
-y_history = df['y']
-
-fig,ax = plt.subplots()
-ax.scatter(x_history, y_history, label='Drone')
+fig , ax = data_parser.plot_solution_time_mpc(df, title='Solution Time for MPC')
 
 
+#%% Look at the engagement
+# engagement_df = data_parser.get_engagement_df(df, 23.5, 25)
+engagement_df = data_parser.find_engagement(df)
+fig, ax = data_parser.plot_damage_effector(engagement_df)
+ax.set_ylim(0, 0.5)
+
+fig, ax = data_parser.plot_3d_trajectory(engagement_df, use_time=True, 
+                                         title='Engagement Trajectory')
+ax.scatter(GOAL_X, GOAL_Y, GOAL_Z, label='Goal', color='r')
+
+
+fig, ax = data_parser.plot_position_tracking(engagement_df, 
+                                                title='Engagement Position Tracking Performance')
+
+fig,ax = data_parser.plot_attitude_tracking(engagement_df, title='Engagement Attitude Tracking Performance')
+
+
+
+#%% 
 plt.show()
