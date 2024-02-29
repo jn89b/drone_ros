@@ -47,10 +47,10 @@ def turn_to_float(num_str) -> list:
     return num_list_float
 
 
-file_names = ['vanilla_mpc', 'directional_mpc', 'mpc_with_obstacles_and_waypoints']
-folder_dir = 'vanilla_mpc/'
+file_names = ['vanilla_mpc', 'directional_mpc', 'drone_history']
+folder_dir = 'figures/'
 
-file_desired = file_names[0]
+file_desired = file_names[2]
 df = pd.read_csv(file_desired+'.csv')
 df.dropna(subset=['x_traj'], inplace=True)
 
@@ -71,6 +71,9 @@ ax.set_zlim(0, 100)
 ax.legend()
 
 fig , ax = data_parser.plot_solution_time_mpc(df, title='Solution Time for MPC')
+
+fig, ax = data_parser.plot_position_tracking(df, title='Position Tracking Performance')
+fig , ax = data_parser.plot_attitude_tracking(df, title='Attitude Tracking Performance')
 
 
 #%% Look at the engagement

@@ -81,7 +81,6 @@ class DataParser():
         else:
             ax.plot(df['x_traj'], df['y_traj'], df['z_traj'], label='Trajectory')
         
-        
         if include_effector:
             effector_x = df['effector_x']
             effector_y = df['effector_y']
