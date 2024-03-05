@@ -34,16 +34,37 @@ class DataParser():
     @staticmethod 
     def get_time_vector(df:pd.DataFrame) -> pd.DataFrame:
         """
-        Get the time vector from the dataframe
+        Get the time vector from the dataframe and zero it out
         """
         time_vector = []
-        curr_time = 0
-        for t in df['time_solution']:
-            curr_time += t
-            time_vector.append(curr_time)
+        start_time = df['current_time'].iloc[0]
+        for t in df['current_time']:
+            time_vector.append(t - start_time)
+            
+        # curr_time = 0
+        # for t in df['time_solution']:
+        #     curr_time += t
+        #     time_vector.append(curr_time)
         
         df['time'] = time_vector
         return df 
+    
+    def plot_robot_radius_3d(self, df:pd.DataFrame, ax:plt.axes,
+                             radius:float=2,
+                             color:str='orange', alpha_val:float=0.2, 
+                             num_points:int=20) -> plt.axes:
+        x_pos = df['x_pos']
+        y_pos = df['y_pos']
+        z_pos = df['z_pos']
+        
+        #plot a 2d circle at each point
+        for x,y,z in zip(x_pos,y_pos,z_pos):
+            theta = np.linspace(0, 2*np.pi, num_points)
+            x_circle = radius * np.cos(theta) + x
+            y_circle = radius * np.sin(theta) + y
+            ax.plot(x_circle, y_circle, z, color=color, alpha=alpha_val)
+
+        return ax
     
     @staticmethod
     def convert_traj_to_enu(df:pd.DataFrame) -> pd.DataFrame:
@@ -63,10 +84,44 @@ class DataParser():
             
         return df
 
-
+    def cleanup_effector_data(self, df:pd.DataFrame) -> pd.DataFrame:
+        """
+        effector_x is [x1,y1,z1] effector_y is [x2,y2,z2] and so on
+        loop through dataframe and extract the effector locations
+        """
+        effector_x = []
+        effector_y = []
+        effector_z = []
+        for index, row in df.iterrows():
+            effector_x_points = []
+            effector_y_points = []
+            effector_z_points = []
+            first_point = ast.literal_eval(row['effector_x'])
+            second_point = ast.literal_eval(row['effector_y'])
+            third_point = ast.literal_eval(row['effector_z'])
+                        
+            effector_x_points.append((first_point[0], second_point[0], third_point[0]))
+            effector_y_points.append((first_point[1], second_point[1], third_point[1]))
+            effector_z_points.append((first_point[2], second_point[2], third_point[2]))
+            
+            effector_x.append(effector_x_points)
+            effector_y.append(effector_y_points)
+            effector_z.append(effector_z_points)
+            
+            
+        #replace eachw row with the new effector data
+        df['effector_x'] = effector_x 
+        df['effector_y'] = effector_y
+        df['effector_z'] = effector_z
+        
+        return df
+        
     def plot_3d_trajectory(self, df:pd.DataFrame, 
                            use_time:bool=False, title:str='3D Trajectory',
-                           include_effector=False, save:bool=False) -> None:
+                           include_effector=False, save:bool=False,
+                           plot_effector:bool=False,
+                           plot_robot_radius:bool=False,
+                           robot_radius_m:float=2.0) -> None:
         """
         Plot the 3D trajectory of the drone
         """
@@ -90,10 +145,7 @@ class DataParser():
                 x_points = ast.literal_eval(x_points)
                 y_points = ast.literal_eval(y_points)
                 z_points = ast.literal_eval(z_points)
-                print("x_points: ", x_points)
-                print("y_points: ", y_points)
-                print("z_points: ", z_points)
-                
+
                 for x, y, z in zip(x_points, y_points, z_points):                    
                     ax.plot(x, y, z, c='r', label='Effecto_points')
                 
@@ -104,10 +156,18 @@ class DataParser():
                                            df['z_pos'], c=c, cmap='viridis'))
             cbar.set_label('Time (s)')
         
+        if plot_effector:
+            fig, ax = self.plot_effector_locations(df, fig, ax)
+        
+        
+        if plot_robot_radius:
+            ax = self.plot_robot_radius_3d(df, ax, radius=robot_radius_m)
+        
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
         ax.set_title(title)
+        ax.legend()
 
         if self.save_figure:
             # plt.savefig(title+'.png')
@@ -115,8 +175,9 @@ class DataParser():
         
         return fig, ax
     
-    def plot_damage_effector(self, 
-                             df:pd.DataFrame, title='Damage Effector vs Time', save:bool=False) -> None:
+    def plot_damage_effector(self, df:pd.DataFrame, 
+                             title='Damage Effector vs Time', 
+                             save:bool=False) -> None:
         """
         Plot the damage effector
         """
@@ -127,10 +188,12 @@ class DataParser():
         ax.set_title(title)
         ax.grid()
         
+        engagement_df = df[(df['effector_dmg'] >= -0.01)]
+        
         #compute the integral of the effector damage
-        integral = np.trapz(df['effector_dmg'], df['time'])
+        integral = np.trapz(engagement_df['effector_dmg'], engagement_df['time'])
         #compute the total time of the engagement
-        total_time = df['time'].iloc[-1] - df['time'].iloc[0]
+        total_time = engagement_df['time'].iloc[-1] - engagement_df['time'].iloc[0]
         
         ax.set_title(title + f'\nIntegral: {integral:.2f}, Total Time: {total_time:.2f}')
         
@@ -138,12 +201,22 @@ class DataParser():
             # plt.savefig(title+'.png')
             self.save_figure_to_dir(fig, title)
         
-        return fig, ax
+        return fig, ax, engagement_df
     
     @staticmethod
-    def find_engagement( df:pd.DataFrame) -> pd.DataFrame:
+    def find_engagement( df:pd.DataFrame, start_buffer:int=-1, 
+                        end_buffer:int=50) -> pd.DataFrame:
     
-        df_engagement = df[(df['effector_dmg'] > 0) ]
+        #get the index right before the engagement
+        idx_engagement = df[(df['effector_dmg'] >= -0.01)].index[0]
+        
+        #get the index right after the engagement
+        idx_end_engagement = df[(df['effector_dmg'] >= -0.01)].index[-1]
+        
+        #get datapoints after the engagement
+        
+        df_engagement = df.iloc[idx_engagement-start_buffer:idx_end_engagement+end_buffer]
+
         return df_engagement
     
     @staticmethod
@@ -281,6 +354,8 @@ class DataParser():
         ax.plot(df['time_solution'])
         ax.set_xlabel('Iterations (s)')
         ax.set_ylabel('Solution Time (s)')
+        #set y limit to be from 0 to 0.5
+        ax.set_ylim(0, 0.5)
         ax.set_title(title)
         ax.grid()
         
@@ -298,3 +373,87 @@ class DataParser():
         full_path = folder + title + '.png'
         fig.savefig(full_path)
         return None
+    
+
+    def plot_obstacles_3D(self, obs_df:pd.DataFrame, current_ax,
+                        z_low:float=0, z_high:float=100,
+                        num_points:int=20,
+                        color_obs:str='r',
+                        alpha_val:float=0.2):
+        """
+        Plot as a cylinder
+        """
+        
+        x_list = obs_df['x']
+        y_list = obs_df['y']
+        radii_list = obs_df['radii']
+        
+        for x,y,r in zip(x_list, y_list, radii_list):
+            # Cylinder parameters
+            radius = r
+            #height = z_high - z_low
+            center = [x, y]
+            
+            theta = np.linspace(0, 2*np.pi, num_points)
+            z = np.linspace(z_low, z_high, num_points)
+            
+            theta, z = np.meshgrid(theta, z)
+            x_vector = radius * np.cos(theta) + center[0]
+            y_vector = radius * np.sin(theta) + center[1]
+            
+            current_ax.plot_surface(x_vector, y_vector, z, 
+                            color=color_obs, alpha=alpha_val)
+            
+        return current_ax
+    
+    def plot_goal_as_cylinder(self, 
+                              goal_x:float, 
+                              goal_y:float,
+                              current_ax:plt.axes, 
+                              z_low:float=0, 
+                              z_high:float=100,
+                              radius:float=5,
+                              num_points:int=20,
+                              color_obs:str='r',
+                              alpha_val:float=0.2) -> None:
+        
+        radius = radius
+        center = [goal_x, goal_y]
+        theta = np.linspace(0, 2*np.pi, num_points)
+        z = np.linspace(z_low, z_high, num_points)
+        
+        theta, z = np.meshgrid(theta, z)
+        x_vector = radius * np.cos(theta) + center[0]
+        y_vector = radius * np.sin(theta) + center[1]
+        
+        current_ax.plot_surface(x_vector, y_vector, z,
+                                color=color_obs, alpha=alpha_val)
+        
+        return current_ax
+        
+    
+    def plot_effector_locations(self, df:pd.DataFrame, fig:plt.Figure, 
+                                ax:plt.axes) -> None:
+        """
+        Plot the effector locations
+        """
+        for i, (x,y,z) in enumerate(zip(
+            df['effector_x'], df['effector_y'], df['effector_z'])):
+            x1 = x[0][0]
+            x2 = x[0][1]
+            x3 = x[0][2]
+            
+            y1 = y[0][0]
+            y2 = y[0][1]
+            y3 = y[0][2]
+            
+            z1 = z[0][0]
+            z2 = z[0][1]
+            z3 = z[0][2]
+            
+            x = [x1, x2, x3, x1]
+            y = [y1, y2, y3, y1]
+            z = [z1, z2, z3, z1]
+            
+            ax.plot(x, y, z, alpha=0.5, color="lightblue",  label='Effector Locations' if i == 0 else "")
+        return fig, ax

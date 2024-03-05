@@ -12,7 +12,10 @@ from drone_ros.DroneInfo import DroneInfo
 from drone_interfaces.msg import Telem, CtlTraj
 # from drone_ros.srv import getGSInfo
 import ros_mpc.rotation_utils as rot_utils
+from ros_mpc.aircraft_config import state_constraints
+import os
 from ros_mpc.aircraft_config import GOAL_STATE
+from ros_mpc.aircraft_config import obs_avoid_params
 
 from geometry_msgs.msg import PoseArray
 from std_msgs.msg import Float64
@@ -21,6 +24,9 @@ import mavros
 from mavros.base import SENSOR_QOS
 
 from drone_ros.DroneInterfaceModel import DroneInterfaceModel
+
+def get_time_in_secs(some_node:Node) -> float:
+    return some_node.get_clock().now().nanoseconds /1E9 
 
 def to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
     """
@@ -94,6 +100,7 @@ class DroneNode(Node):
         self.vel_args = {}
         self.old_thrust = 0.5
         self.old_velocity = 20.0
+        self.start_time = get_time_in_secs(self)
         
         self.state_info =[
             None, #x
@@ -197,11 +204,11 @@ class DroneNode(Node):
             self.time_solution_callback,
             self.drone_node_frequency)
         
-        # self.traj_sub = self.create_subscription(
-        #     CtlTraj,
-        #     'directional_trajectory',
-        #     self.__trajCallback,
-        #     self.drone_node_frequency)
+        self.traj_sub = self.create_subscription(
+            CtlTraj,
+            'directional_trajectory',
+            self.__trajCallback,
+            self.drone_node_frequency)
         
         # self.traj_sub = self.create_subscription(
         #     CtlTraj,
@@ -209,11 +216,11 @@ class DroneNode(Node):
         #     self.__trajCallback,
         #     self.drone_node_frequency)
         
-        self.traj_sub = self.create_subscription(
-            CtlTraj,
-            'waypoint_trajectory',
-            self.__trajCallback,
-            self.drone_node_frequency)
+        # self.traj_sub = self.create_subscription(
+        #     CtlTraj,
+        #     'waypoint_trajectory',
+        #     self.__trajCallback,
+        #     self.drone_node_frequency)
         
         # self.traj_sub = self.create_subscription(
         #     CtlTraj,
@@ -317,9 +324,7 @@ class DroneNode(Node):
         vz_traj = msg.vz
 
         idx_command = msg.idx
-        print(idx_command)
     
-
         if self.state_info[0] is None:
             return
 
@@ -358,6 +363,9 @@ class DroneNode(Node):
                                     thrust=thrust)
             self.old_thrust = thrust        
             self.old_velocity = airspeed_control
+            
+            #set airspeed
+            # self.send_airspeed_command(airspeed=airspeed_control)
 
         else:
             vel_args = {'vx': vx_traj[idx_command],
@@ -382,6 +390,7 @@ class DroneNode(Node):
         self.roll_cmd_curr = roll_traj[idx_command]
         self.pitch_cmd_curr = pitch_traj[idx_command]
         self.yaw_cmd_curr = yaw_traj[idx_command]
+        self.time.append(get_time_in_secs(self) - self.start_time)
         self.update_history()    
         return 
 
@@ -418,8 +427,8 @@ class DroneNode(Node):
 
 
     def map_thrust(self, desired_vel:float) -> float:
-        vel_max = 25
-        vel_min = 15
+        vel_max = state_constraints['airspeed_max']
+        vel_min = state_constraints['airspeed_min']
         
         thrust_min = 0.25
         thrust_max = 0.75
@@ -444,10 +453,10 @@ class DroneNode(Node):
         0, #confirmation
         0, #Speed type (0=Airspeed, 1=Ground Speed, 2=Climb Speed, 3=Descent Speed)
         airspeed, #Speed #m/s
-        -1, #Throttle (-1 indicates no change) % 
+        0, #Throttle (-1 indicates no change) % 
         0, 0, 0, 0 #ignore other parameters
         )
-        print("change airspeed", airspeed)
+        # print("change airspeed", airspeed)
 
     def beginTakeoffLand(self, altitude: float) -> None:
         self.commander.takeoff(altitude)
@@ -468,7 +477,8 @@ def main(args=None):
     # drone_info = drone_node.drone_info
     
     print("connected to drone")
-
+    time_start = get_time_in_secs(drone_node)
+    
     rclpy.spin_once(drone_node)
     while rclpy.ok():
         try:
@@ -477,8 +487,7 @@ def main(args=None):
             #     rclpy.spin(drone_node, timeout_sec=1.0)
             #     continue
             # drone_info.publishTelemInfo()
-            #print roll and pitch angles
-            print("sending commands")
+            #print roll and pitch angles   
             #drone_node.send_airspeed_command(airspeed=25.0)
             # drone_node.sendAttitudeTarget(roll_angle=0.0,
             #                                 pitch_angle=0.0,
@@ -496,6 +505,7 @@ def main(args=None):
             print("saving history to csv")
             print(drone_node.x_traj_history)
             df = pd.DataFrame({
+                'current_time': drone_node.time,
                 'x_pos': drone_node.x_pos_history,
                 'y_pos': drone_node.y_pos_history,
                 'z_pos': drone_node.z_pos_history,
@@ -523,44 +533,33 @@ def main(args=None):
                 'cost': drone_node.cost_val_history,
                 'time_solution': drone_node.time_solution_history
             })
-            df.to_csv('drone_history.csv')
+            #save obstacle avoid params as a df
+            df_obs = pd.DataFrame({
+                'weight': obs_avoid_params['weight'],
+                'safe_distance': obs_avoid_params['safe_distance'],
+                'x': obs_avoid_params['x'],
+                'y': obs_avoid_params['y'],
+                'z': obs_avoid_params['z'],
+                'radii': obs_avoid_params['radii']
+            })
+            
+            #check if drone_history.csv exists
+            if os.path.exists('drone_history.csv'):
+                #append to the csv
+                #save file as current
+                #get string of current date and time
+                date_time = pd.to_datetime('today').strftime('%Y-%m-%d-%H-%M-%S')
+                file_name = 'drone_history_' + date_time + '.csv'
+                obs_filename = 'obs_avoid_params_' + date_time + '.csv'
+            else:
+                file_name = 'drone_history'
+                obs_filename = 'obs_avoid_params'
+                
+            df.to_csv(file_name+'.csv')
+            df_obs.to_csv(obs_filename+'.csv')
             
             print("Shutting down")
-        
-        # finally:
-        #     #save history to df and csv
-        #     print("saving history to csv")
-        #     df = pd.DataFrame({
-        #         'x_pos': drone_node.x_pos_history,
-        #         'y_pos': drone_node.y_pos_history,
-        #         'z_pos': drone_node.z_pos_history,
-        #         'roll': drone_node.roll_history,
-        #         'pitch': drone_node.pitch_history,
-        #         'yaw': drone_node.yaw_history,
-        #         'vel': drone_node.vel_history,
-        #         'x_traj': drone_node.x_traj_history,
-        #         'y_traj': drone_node.y_traj_history,
-        #         'z_traj': drone_node.z_traj_history,
-        #         'roll_traj': drone_node.roll_traj_history,
-        #         'pitch_traj': drone_node.pitch_traj_history,
-        #         'yaw_traj': drone_node.yaw_traj_history,
-        #         'x_cmd': drone_node.x_cmd_history,
-        #         'y_cmd': drone_node.y_cmd_history,
-        #         'z_cmd': drone_node.z_cmd_history,
-        #         'roll_cmd': drone_node.roll_cmd_history,
-        #         'pitch_cmd': drone_node.pitch_cmd_history,
-        #         'yaw_cmd': drone_node.yaw_cmd_history,
-        #         'vel_cmd': drone_node.vel_cmd_history,
-        #         'effector_dmg': drone_node.effector_dmg_history,
-        #         'effector_x': drone_node.effector_x_history,
-        #         'effector_y': drone_node.effector_y_history,
-        #         'effector_z': drone_node.effector_z_history
-        #     })
-        #     df.to_csv('drone_history.csv')
-            
-        #     print("Shutting down")
-        #     drone_node.destroy_node()
-        #     rclpy.shutdown()
+            return 
         
 
 if __name__ == '__main__':
