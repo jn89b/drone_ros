@@ -121,6 +121,9 @@ class DroneNode(Node):
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
+        ## use this one when you are doing SITL testing
+        #self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
+        ## use this one when you are doing a flight test
         self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14550')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
@@ -186,35 +189,35 @@ class DroneNode(Node):
                                                 self.__telemCallback, 
                                                 qos_profile=SENSOR_QOS)
         
-        self.effector_dmg_sub = self.create_subscription(
-                        Float64,
-                        '/damage_info',
-                        self.effector_dmg_callback,
-                        self.drone_node_frequency)
+        # self.effector_dmg_sub = self.create_subscription(
+        #                 Float64,
+        #                 '/damage_info',
+        #                 self.effector_dmg_callback,
+        #                 self.drone_node_frequency)
   
-        self.effector_location_sub = self.create_subscription(
-            PoseArray, 
-            '/effector_location',
-            self.effector_pos_callback,
-            self.drone_node_frequency)
+        # self.effector_location_sub = self.create_subscription(
+        #     PoseArray, 
+        #     '/effector_location',
+        #     self.effector_pos_callback,
+        #     self.drone_node_frequency)
 
-        self.time_solution_sub = self.create_subscription(
-            Float64,
-            '/waypoint_time_sol',
-            self.time_solution_callback,
-            self.drone_node_frequency)
-        
-        self.traj_sub = self.create_subscription(
-            CtlTraj,
-            'directional_trajectory',
-            self.__trajCallback,
-            self.drone_node_frequency)
+        # self.time_solution_sub = self.create_subscription(
+        #     Float64,
+        #     '/waypoint_time_sol',
+        #     self.time_solution_callback,
+        #     self.drone_node_frequency)
         
         # self.traj_sub = self.create_subscription(
         #     CtlTraj,
-        #     'omni_trajectory',
+        #     'directional_trajectory',
         #     self.__trajCallback,
         #     self.drone_node_frequency)
+        
+        self.traj_sub = self.create_subscription(
+            CtlTraj,
+            'omni_trajectory',
+            self.__trajCallback,
+            self.drone_node_frequency)
         
         # self.traj_sub = self.create_subscription(
         #     CtlTraj,
@@ -329,6 +332,7 @@ class DroneNode(Node):
             return
 
         if self.DroneType == 'VTOL':
+            print("sending command")
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
 
