@@ -22,6 +22,7 @@ from std_msgs.msg import Float64
 
 import mavros
 from mavros.base import SENSOR_QOS
+from mavros.system import STATE_QOS
 
 from drone_ros.DroneInterfaceModel import DroneInterfaceModel
 
@@ -131,11 +132,11 @@ class DroneNode(Node):
         self.master.wait_heartbeat()
 
     def __init_variables(self) -> None:	
-        
         self.effector_dmg_curr = -1.0
         self.effector_x = []
         self.effector_y = []
         self.effector_z = []
+        self.current_mode = None
         
         self.cost_val = 1E10
         self.time_solution = -100
@@ -186,6 +187,11 @@ class DroneNode(Node):
                                                 'mavros/local_position/odom', 
                                                 self.__telemCallback, 
                                                 qos_profile=SENSOR_QOS)
+        
+        self.mode_sub = self.create_subscription(mavros.system.State,
+                                                 'mavros/state',
+                                                 self.__modeCallback,
+                                                 qos_profile=STATE_QOS)
         
         self.effector_dmg_sub = self.create_subscription(
                         Float64,
@@ -278,6 +284,8 @@ class DroneNode(Node):
         self.effector_y = y_position
         self.effector_z = z_position
 
+    def __modeCallback(self, msg: mavros.system.State) -> None:
+        self.current_mode = msg.mode
 
     def __telemCallback(self, msg:Telem) -> None:
         #TODO: refactor this method here
@@ -327,6 +335,9 @@ class DroneNode(Node):
     
         if self.state_info[0] is None:
             return
+        
+        if self.current_mode != "GUIDED":
+            return 
 
         if self.DroneType == 'VTOL':
             roll_cmd = np.rad2deg(roll_traj[idx_command])
