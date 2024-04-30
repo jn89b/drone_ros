@@ -121,10 +121,8 @@ class DroneNode(Node):
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
-        ## use this one when you are doing SITL testing
-        #self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
-        ## use this one when you are doing a flight test
-        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14550')
+        #self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14550')
+        self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
@@ -189,23 +187,23 @@ class DroneNode(Node):
                                                 self.__telemCallback, 
                                                 qos_profile=SENSOR_QOS)
         
-        # self.effector_dmg_sub = self.create_subscription(
-        #                 Float64,
-        #                 '/damage_info',
-        #                 self.effector_dmg_callback,
-        #                 self.drone_node_frequency)
+        self.effector_dmg_sub = self.create_subscription(
+                        Float64,
+                        '/damage_info',
+                        self.effector_dmg_callback,
+                        self.drone_node_frequency)
   
-        # self.effector_location_sub = self.create_subscription(
-        #     PoseArray, 
-        #     '/effector_location',
-        #     self.effector_pos_callback,
-        #     self.drone_node_frequency)
+        self.effector_location_sub = self.create_subscription(
+            PoseArray, 
+            '/effector_location',
+            self.effector_pos_callback,
+            self.drone_node_frequency)
 
-        # self.time_solution_sub = self.create_subscription(
-        #     Float64,
-        #     '/waypoint_time_sol',
-        #     self.time_solution_callback,
-        #     self.drone_node_frequency)
+        self.time_solution_sub = self.create_subscription(
+            Float64,
+            '/waypoint_time_sol',
+            self.time_solution_callback,
+            self.drone_node_frequency)
         
         # self.traj_sub = self.create_subscription(
         #     CtlTraj,
@@ -272,7 +270,6 @@ class DroneNode(Node):
         y_position = []
         z_position = []
         for pose in poses:
-
             x_position.append(pose.position.x)
             y_position.append(pose.position.y)
             z_position.append(pose.position.z)
@@ -332,7 +329,6 @@ class DroneNode(Node):
             return
 
         if self.DroneType == 'VTOL':
-            print("sending command")
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
 
@@ -340,6 +336,8 @@ class DroneNode(Node):
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
         
             yaw_desired = yaw_cmd - yaw_current
+
+            # print("yaw desired", yaw_desired)
             if yaw_desired > 180:
                 yaw_desired = yaw_desired - 360
             elif yaw_desired < -180:
@@ -498,7 +496,7 @@ def main(args=None):
             #                                 yaw_angle=-45,
             #                                 thrust=0.5)
             
-            rclpy.spin_once(drone_node, timeout_sec=0.05)
+            rclpy.spin_once(drone_node)
             #rclpy.spin_until_future_complete(drone_node, timeout_sec=0.05)
 
         #check ctrl+c
@@ -567,9 +565,4 @@ def main(args=None):
         
 
 if __name__ == '__main__':
-    main()        
-
-
-
-
-        
+    main()
