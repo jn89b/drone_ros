@@ -45,17 +45,16 @@ def check_rc_channel(master, channel_num:int) -> int:
             return None
 
 if __name__ == '__main__':
-    buzzer_master = mavutil.mavlink_connection('udp:127.0.0.1:14550')
+    buzzer_master = mavutil.mavlink_connection('192.168.135.72:14550')
+    #check if heartbeat is received
+    buzzer_master.wait_heartbeat()
+    print("Heartbeat from system (system %u component %u)" % (buzzer_master.target_system, buzzer_master.target_component))
     rc_channel = 7
     buzzer = Buzzer()
-
-    # Wait for the first heartbeat 
-    # This confirms the connection to th
+    
     try:
         while True:
             channel_val = check_rc_channel(buzzer_master, rc_channel)
-            #print(channel_val)
-            
             if channel_val >= 1800:
                 #print("setting buzzer to 1")
                 buzzer.set_val(1)

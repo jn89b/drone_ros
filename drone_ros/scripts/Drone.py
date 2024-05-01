@@ -122,8 +122,9 @@ class DroneNode(Node):
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
-        #self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14550')
-        self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
+        self.declare_parameter('mav_connection_string', 'udp:192.168.135.72:14550')
+        print("connecting to", self.get_parameter('mav_connection_string').get_parameter_value().string_value)
+        #self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
@@ -492,7 +493,7 @@ def main(args=None):
     print("connected to drone")
     time_start = get_time_in_secs(drone_node)
     
-    rclpy.spin_once(drone_node)
+    rclpy.spin_once(drone_node, timeout_sec=0.1)
     while rclpy.ok():
         try:
             # if drone_node.state_info[0] is None:
