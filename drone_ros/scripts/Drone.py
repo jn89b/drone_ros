@@ -122,9 +122,11 @@ class DroneNode(Node):
 
     def __initMasterConnection(self) -> None:
         #drone commander initialization 
-        self.declare_parameter('mav_connection_string', 'udp:192.168.135.72:14550')
-        print("connecting to", self.get_parameter('mav_connection_string').get_parameter_value().string_value)
-        #self.declare_parameter('mav_connection_string', 'udp:192.168.1.101:14551')
+        #ip address for of phone
+        # self.declare_parameter('mav_connection_string', 'udp:192.168.135.72:14550')
+        # print("connecting to", self.get_parameter('mav_connection_string').get_parameter_value().string_value)
+        
+        self.declare_parameter('mav_connection_string', 'udp:192.168.1.105:14551')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
@@ -365,10 +367,10 @@ class DroneNode(Node):
             pitch_set = (pitch_desired - pitch_cmd)
 
             airspeed_control = vx_traj[idx_command]#self.control_info[3]            
-            print("desired roll: ", roll_cmd)
-            print("desired pitch: ", pitch_set)
-            print("desired yaw: ", yaw_desired)
-            print("airspeed control: ", airspeed_control)
+            # print("desired roll: ", roll_cmd)
+            # print("desired pitch: ", pitch_set)
+            # print("desired yaw: ", yaw_desired)
+            # print("airspeed control: ", airspeed_control)
             thrust = self.map_thrust(airspeed_control)
 
             self.sendAttitudeTarget(roll_angle=roll_cmd,
