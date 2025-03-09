@@ -51,6 +51,7 @@ install(PROGRAMS
   scripts/GSService.py
   scripts/GSInputClient.py
   scripts/logger.py
+  scripts/example.py
   # scripts/client_member_function.py
   # scripts/service_member_function.py
   DESTINATION lib/${PROJECT_NAME}

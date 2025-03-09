@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 from pymavlink import mavutil
-from drone_interfaces.msg import Telem
+# from drone_interfaces.msg import Telem
 from rclpy.node import Node
 import math
+import numpy as np
+import matplotlib.pyplot as plt
+import time
 
+class Telem():
+    pass
 class DroneInfo():
-    def __init__(self, master, 
-                 telem_publisher,
-                 drone_info_frequency) -> None:
-        self.master = master
-        self.telem_publisher = telem_publisher
-        self.drone_info_frequency = drone_info_frequency
+    def __init__(self, master:mavutil) -> None:
+        self.master:mavutil = master
+        self.drone_info_frequency:int = 30
+        self.__startListening()
         
     def __startListening(self) -> None:
+        """
+        Feel free to add more messages to listen to 
+        you need to add the message id and the frequency
+        simliar to what I did below
+        """
         self.__requestMessageInterval(mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 
                                     self.drone_info_frequency)
         self.__requestMessageInterval(mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,
@@ -23,8 +31,12 @@ class DroneInfo():
                                     self.drone_info_frequency)
         
     def __getData(self) -> Telem:
+        """
+        G
+        """
         
-        output = Telem()
+        ## AROHI CHANGE THIS TO LIKE A DATAHANDLER CLASS
+        # output = Telem()
         msg = self.master.recv_match(type=['LOCAL_POSITION_NED', 'ATTITUDE', 'GLOBAL_POSITION_INT'], blocking=True)
 
         try:
@@ -82,6 +94,26 @@ class DroneInfo():
         )
 
     def publishTelemInfo(self) -> Telem:
-        self.__startListening()
+        """
+        This returns the telemery information of the drone
+        """
         output = self.__getData()
-        self.telem_publisher.publish(output)
+        print("output: ", output)
+
+if __name__ == '__main__':
+    
+    # TODO: Change this to where you the flight controller is
+    connection_str: str = "udp:127.0.0.1:14552"
+    master = mavutil.mavlink_connection(connection_str)
+    drone_info = DroneInfo(master)
+    
+    while True:
+        try:
+            drone_info.publishTelemInfo()
+        
+        # CATCH ctrl + c
+        except KeyboardInterrupt:
+            break
+            
+    master.close()
+    

@@ -4,14 +4,42 @@ import rclpy
 import numpy as np
 import math
 from pymavlink import mavutil
+from typing import List, Dict, Any
 from rclpy.node import Node
-from drone_ros.quaternion_tools import get_euler_from_quaternion, get_quaternion_from_euler
+# from ros_mpc.quaternion_tools import (
+#     get_euler_from_quaternion,
+#     get_quaternion_from_euler,
+#     get_relative_ned_yaw_cmd
+#     )
+
+from drone_ros.quaternion_tools import (
+    get_euler_from_quaternion,
+    get_relative_ned_yaw_cmd
+)
 from drone_ros.Commander import Commander
 from drone_ros.DroneInfo import DroneInfo
 from drone_interfaces.msg import Telem, CtlTraj
 # from drone_ros.srv import getGSInfo
 
 from drone_ros.DroneInterfaceModel import DroneInterfaceModel
+import rclpy.publisher
+import rclpy.subscription
+
+
+def compute_pursuit_angle(enu_state: np.array,
+                          target_x,
+                          target_y) -> float:
+    """
+    Yaw command is in global frame in ENU convention
+    """
+    dx: float = target_x - enu_state[0]
+    dy: float = target_y - enu_state[1]
+    print("dx is: ", dx)
+    print("dy is: ", dy)
+    enu_yaw_cmd: float = np.arctan2(dy, dx)
+    distance = np.sqrt(dx**2 + dy**2)
+    print("distance is: ", distance)
+    return enu_yaw_cmd
 
 
 def to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
@@ -32,33 +60,6 @@ def to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
 
     return [w, x, y, z]
 
-# class GSListenerClient(Node):
-#     """
-#     Make this as a service
-#     """
-#     def __init__(self) -> None:
-#         super().__init__('gs_listener_client')
-
-#         self.model_info = DroneInterfaceModel()
-#         self.info_client = self.create_client(getGSInfo, 'gs_listener')
-
-#         while not self.info_client.wait_for_service(timeout_sec=1.0):
-#             self.get_logger().info('service not available, waiting again...')
-
-#     def sendInfoRequest(self):
-#         request = getGSInfo.Request()
-#         future = self.info_client.call_async(request)
-#         # future.add_done_callback(self.__infoResponseCallback)
-#         rclpy.spin_until_future_complete(self, future)
-
-#         return future.result()
-
-#     def mapInfo(self, response):
-#         self.model_info.setArmDisarm(response.arm_disarm)
-#         self.model_info.setGoal(response.goal)
-#         self.model_info.setTakeoff(response.takeoff, response.height)
-#         self.model_info.setUASType(response.uas_type)
-
 
 class DroneNode(Node):
     def __init__(self):
@@ -66,24 +67,24 @@ class DroneNode(Node):
         self.get_logger().info('Drone node has been started')
 
         # frequency interval
-        self.declare_parameter('drone_node_frequency', 50)
+        self.declare_parameter('drone_node_frequency', 30)
         self.drone_node_frequency = self.get_parameter(
             'drone_node_frequency').get_parameter_value().integer_value
 
         self.__initMasterConnection()
         self.__initPublishers()
 
-        self.DroneType = 'VTOL'
+        self.DroneType: str = 'VTOL'
 
-        self.commander = Commander(self.master)
+        self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()
-        self.drone_info = DroneInfo(self.master,
-                                    self.telem_publisher,
-                                    self.drone_node_frequency)
+        self.drone_info: DroneInfo = DroneInfo(self.master,
+                                               self.telem_publisher,
+                                               self.drone_node_frequency)
 
         self.__initSubscribers()
 
-        self.vel_args = {}
+        self.vel_args: Dict[str, float] = {}
 
     def __initMasterConnection(self) -> None:
         # drone commander initialization
@@ -92,57 +93,63 @@ class DroneNode(Node):
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
-        self.master = mavutil.mavlink_connection(self.mav_connection_string)
+        self.master: mavutil = mavutil.mavlink_connection(
+            self.mav_connection_string)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:
-        self.telem_publisher = self.create_publisher(
+        self.telem_publisher: rclpy.publisher.Publisher = self.create_publisher(
             Telem, 'telem', self.drone_node_frequency)
 
     def __initSubscribers(self) -> None:
-        self.telem_sub = self.create_subscription(
+        self.telem_sub: rclpy.subscription.Subscription = self.create_subscription(
             Telem,
             'telem',
             self.__telemCallback,
             self.drone_node_frequency)
 
-        self.traj_sub = self.create_subscription(
+        self.traj_sub: rclpy.subscription.Subscription = self.create_subscription(
             CtlTraj,
             'trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
 
     def __telemCallback(self, msg: Telem) -> None:
-        self.lat = msg.lat
-        self.lon = msg.lon
-        self.alt = msg.alt
+        self.lat: float = msg.lat
+        self.lon: float = msg.lon
+        self.alt: float = msg.alt
 
-        self.ground_vel = [msg.vx,
-                           msg.vy,
-                           msg.vz]
+        self.ground_vel: List[float] = [msg.vx,
+                                        msg.vy,
+                                        msg.vz]
 
-        self.heading = msg.heading
+        self.heading: float = msg.heading
 
-        self.attitudes = [msg.roll,
-                          msg.pitch,
-                          msg.yaw]
+        self.attitudes: List[float] = [msg.roll,
+                                       msg.pitch,
+                                       msg.yaw]
 
-        self.attitude_rates = [msg.roll_rate,
-                               msg.pitch_rate,
-                               msg.yaw_rate]
+        self.attitude_rates: List[float] = [msg.roll_rate,
+                                            msg.pitch_rate,
+                                            msg.yaw_rate]
 
-        self.ned_position = [msg.x,
-                             msg.y,
-                             msg.z]
+        self.ned_position: List[float] = [msg.x,
+                                          msg.y,
+                                          msg.z]
 
     def __trajCallback(self, msg: CtlTraj):
-        x_traj = msg.x
-        y_traj = msg.y
-        z_traj = msg.z
+        """
+        Note the yaw trajectory we get
+        is in global frame, we need to convert this 
+        to relative yaw command 
+        """
+        x_traj: float = msg.x
+        y_traj: float = msg.y
+        z_traj: float = msg.z
 
-        roll_traj = msg.roll
-        pitch_traj = msg.pitch
-        yaw_traj = msg.yaw
+        roll_traj: float = msg.roll
+        pitch_traj: float = msg.pitch
+        yaw_traj: float = msg.yaw
 
         roll_rate_traj = msg.roll_rate
         pitch_rate_traj = msg.pitch_rate
@@ -154,19 +161,23 @@ class DroneNode(Node):
         idx_command = msg.idx
 
         if self.DroneType == 'VTOL':
-            print("idx_command: ", idx_command)
             x_cmd = x_traj[idx_command]
             y_cmd = y_traj[idx_command]
 
+            # ned_command_yaw = compute_pursuit_angle(
+            #     self.ned_position, x_cmd, y_cmd)
             roll_cmd = np.rad2deg(roll_traj[idx_command])
-            pitch_cmd = np.rad2deg(pitch_traj[idx_command])
-            # yaw_cmd = np.rad2deg(yaw_traj[idx_command])
-            yaw_cmd = np.rad2deg(np.arctan2(x_cmd, y_cmd))
+            # roll_cmd = 0.0
+            pitch_cmd = -np.rad2deg(pitch_traj[idx_command])
+            
+            # for this application we are going to map the roll command to yaw command
+            # it just works better for some reason (probably because of ArduPilot controller)
+            yaw_cmd = 0.3*roll_cmd
 
+            print("current yaw: ", np.rad2deg(self.attitudes[2]))
             print("roll_cmd: ", roll_cmd)
             print("pitch_cmd: ", pitch_cmd)
             print("yaw_cmd: ", yaw_cmd)
-
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
@@ -180,13 +191,46 @@ class DroneNode(Node):
             # print(vel_args)
             self.commander.sendNEDVelocity(vel_args)
 
+    def yaw_rate_from_roll(self, roll_command:float, 
+                           airspeed:float, g=9.81) -> float:
+        return (g / airspeed) * np.tan(roll_command)
+
+    def update_yaw_command(self, current_yaw:float, 
+                           roll_command:float, 
+                           airspeed:float, 
+                           dt:float, 
+                           g=9.81) -> float:
+        # Compute the yaw rate induced by the roll command
+        yaw_rate = self.yaw_rate_from_roll(roll_command, airspeed, g)
+        # Integrate yaw rate over the time step to update the yaw command
+        new_yaw = current_yaw + yaw_rate * dt
+        # Wrap the yaw angle to [-pi, pi]
+        new_yaw = (new_yaw + np.pi) % (2 * np.pi) - np.pi
+        return yaw_rate
+
     def sendAttitudeTarget(self, roll_angle=0.0, pitch_angle=0.0,
                            yaw_angle=None, yaw_rate=0.0, use_yaw_rate=False,
                            thrust=0.5, body_roll_rate=0.0, body_pitch_rate=0.0):
         """
-        From MPC the yaw angle we get is in oriented in
-        ENU frame where x is right, y is forward and z is up
-        The flight controller is oriented in NED frame where x is forward (north)
+        All commands are in NED frame
+        Args:
+            roll_angle: Attitude roll angle in degrees
+            pitch_angle: Attitude pitch angle in degrees
+            yaw_angle: Attitude yaw angle in degrees
+            yaw_rate: Yaw rate in degrees per second
+            use_yaw_rate: True if yaw rate is used, False if yaw angle is used
+            thrust: Thrust
+            body_roll_rate: Body roll rate in degrees per second
+            body_pitch_rate: Body pitch rate in degrees per second  
+
+        Note:
+            Yaw angle command is relative to the aircraft
+            that is if you send a yaw angle of 0, the aircraft 
+            will go "straight" in the direction it is pointing
+            90 degrees will make the aircraft go right more tight than
+            a 45 degree command 
+
+            Positive pitch is up
 
         Therefore our yaw angle needs to be converted from ENU to NED
         """
@@ -194,17 +238,6 @@ class DroneNode(Node):
 
         if yaw_angle is None:
             yaw_angle = master.messages['ATTITUDE'].yaw
-
-        # add the yaw
-        current_yaw_angle = np.rad2deg(master.messages['ATTITUDE'].yaw)
-
-        # # convert the yaw angle from ENU to NED
-        yaw_angle = np.rad2deg(np.pi/2) - yaw_angle
-        # wrap the angle between -180 and 180
-        if yaw_angle > 180:
-            yaw_angle -= 360
-        elif yaw_angle < -180:
-            yaw_angle += 360
 
         # print("yaw angle is: ", yaw_angle)
         master.mav.set_attitude_target_send(
@@ -226,29 +259,14 @@ class DroneNode(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    drone_node = DroneNode()
-    drone_commander = drone_node.commander
-    drone_info = drone_node.drone_info
+    drone_node: DroneNode = DroneNode()
+    drone_commander: Commander = drone_node.commander
+    drone_info: DroneInfo = drone_node.drone_info
     print("connected to drone")
 
-    # arm_args = {'arm_disarm': 1}
-    # drone_commander.armDisarm(arm_args)
-
-    # mode_args = {'mode': 'GUIDED'}
-    # drone_commander.changeFlightMode(mode_args)
-    # takeoff_args = {'altitude': 15}
-
-    # for i in range(100):
-    #     drone_commander.takeoff(takeoff_args)
-    #     rclpy.spin_once(drone_node, timeout_sec=0.1)
-
-    # vel_args = {'vx': 5, 'vy': 0, 'vz': 0, 'set_vz': False}
-    # drone_commander.sendNEDVelocity(vel_args)
-
-    # rclpy.spin(drone_node)
     while rclpy.ok():
         drone_info.publishTelemInfo()
-        rclpy.spin_once(drone_node, timeout_sec=0.1)
+        rclpy.spin_once(drone_node, timeout_sec=0.05)
 
 
 if __name__ == '__main__':

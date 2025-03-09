@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
+import numpy as np
 from rclpy.node import Node
 from pymavlink import mavutil
-
+from typing import Dict, List, Any
+from drone_ros.quaternion_tools import to_quaternion_from_euler_dgs
 class Commander():
     """
     Might callback from parent node to get information
     about the drone
     """
 
-    def __init__(self, master):
-        self.master = master
+    def __init__(self, master:mavutil) -> None:
+        self.master:mavutil = master
 
-    def validateModeChange(self, mode) -> bool:
+    def validateModeChange(self, mode:bool) -> bool:
         master = self.master
         if mode not in master.mode_mapping():
             print('mode not in args')
             return False
         return True
 
-    def changeFlightMode(self, args):
+    def changeFlightMode(self, args:Dict[str, Any]):
         master = self.master
         mode = args['mode']
         print('mode: ' + mode)
@@ -215,5 +217,57 @@ class Commander():
             0, #longitude
             0) #Altitude to target for the landing. Unless you are landing at a location different than home, this should be zero
         
+        
+    
+    def sendAttitudeTarget(
+        self,
+        roll_angle_dg:float=0.0,
+        pitch_angle_dg:float=0.0,
+        yaw_angle_dg:float=None,
+        yaw_rate_dps:float=0.0,
+        use_yaw_rate:bool=False,
+        thrust:float=0.5,
+        body_roll_rate:float=0.0,
+        body_pitch_rate:float=0.0) -> None:
+        print("roll_angle_dg: ", roll_angle_dg)
+        print("pitch_angle_dg: ", pitch_angle_dg)
+        print("yaw_angle_dg: ", yaw_angle_dg)
+        """
+        Args:
+            roll_angle_dg (float): Desired roll angle in degrees
+            pitch_angle_dg (float): Desired pitch angle in degrees
+            yaw_angle_dg (float): Desired yaw angle in degrees
+            yaw_rate_dps (float): Desired yaw rate in degrees per second
+            use_yaw_rate (bool): Use yaw rate or not
+            thrust (float): Desired thrust
+            body_roll_rate (float): Desired body roll rate in radian
+            body_pitch_rate (float): Desired body pitch rate
+        
+        Notes:
+            Positive yaw is CW and the value is between -180 to 180
+            in addition the command is relative that is if you set 
+            the yaw angle dg to 0 the drone will face the same direction
+            
+        where positive 
+        """
+        if yaw_angle_dg is None:
+            yaw_angle_dg = np.rad2deg(self.master.messages['ATTITUDE'].yaw)
 
+        self.master.mav.set_attitude_target_send(
+            0,  # time_boot_ms (not used)
+            self.master.target_system,  # target system
+            self.master.target_component,  # target component
+            0b00000000 if use_yaw_rate else 0b00000100,
+            to_quaternion_from_euler_dgs(roll_angle_dg,
+                                         pitch_angle_dg, yaw_angle_dg),  # Quaternion
+            body_roll_rate,  # Body roll rate in radian
+            body_pitch_rate,  # Body pitch rate in radian
+            np.radians(yaw_rate_dps),  # Body yaw rate in radian/second
+            thrust
+        )
+        
+        
+        
+    
+    
     
