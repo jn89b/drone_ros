@@ -318,7 +318,7 @@ class PlaneKinematicModel:
         # # # check if phi_f is within -pi/4 to pi/4
         # # phi_cmd = ca.if_else(phi_cmd > ca.pi/4, ca.pi/4, phi_cmd)
         # # phi_cmd = ca.if_else(phi_cmd < -ca.pi/4, -ca.pi/4, phi_cmd)
-        phi_cmd = self.u_phi
+        phi_cmd = self.u_phi 
 
         # self.phi_fdot: ca.SX = (self.u_phi - self.phi_f) / self.tau_phi
         self.phi_fdot: ca.SX = (phi_cmd - self.phi_f) / self.tau_phi

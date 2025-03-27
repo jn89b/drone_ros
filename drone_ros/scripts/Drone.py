@@ -163,17 +163,20 @@ class DroneNode(Node):
         if self.DroneType == 'VTOL':
             x_cmd = x_traj[idx_command]
             y_cmd = y_traj[idx_command]
-
-            # ned_command_yaw = compute_pursuit_angle(
-            #     self.ned_position, x_cmd, y_cmd)
+            z_cmd = z_traj[-1]
+            #TODO: fix the math model for the z orientation something is messsed up
+            z_error = -z_cmd + self.ned_position[2]
+            max_pitch:float = 20.0
+            kp_pitch:float = 5.0
+            pitch_cmd = kp_pitch * z_error
+            pitch_cmd = np.clip(pitch_cmd, -max_pitch, max_pitch)
+            pitch_cmd = pitch_cmd #+ np.rad2deg(current_pitch)
             roll_cmd = np.rad2deg(roll_traj[idx_command])
-            # roll_cmd = 0.0
-            pitch_cmd = -np.rad2deg(pitch_traj[idx_command])
             
             # for this application we are going to map the roll command to yaw command
             # it just works better for some reason (probably because of ArduPilot controller)
-            yaw_cmd = 0.3*roll_cmd
-
+            yaw_cmd = 0.5*roll_cmd
+            # yaw_cmd = get_relative_ned_yaw_cmd(self.attitudes[2], ned_command_yaw)
             print("current yaw: ", np.rad2deg(self.attitudes[2]))
             print("roll_cmd: ", roll_cmd)
             print("pitch_cmd: ", pitch_cmd)
