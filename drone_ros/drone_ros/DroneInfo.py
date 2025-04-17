@@ -90,10 +90,14 @@ class DroneInfo:
             output.heading = self.master.messages['GLOBAL_POSITION_INT'].hdg
 
             # Uncomment the following block to use quaternion-based attitude calculations.
-            # qx = self.master.messages['ATTITUDE_QUATERNION'].q1
-            # qy = self.master.messages['ATTITUDE_QUATERNION'].q2
-            # qz = self.master.messages['ATTITUDE_QUATERNION'].q3
-            # qw = self.master.messages['ATTITUDE_QUATERNION'].q4
+            qx = self.master.messages['ATTITUDE_QUATERNION'].q1
+            qy = self.master.messages['ATTITUDE_QUATERNION'].q2
+            qz = self.master.messages['ATTITUDE_QUATERNION'].q3
+            qw = self.master.messages['ATTITUDE_QUATERNION'].q4
+            output.qx = qx
+            output.qy = qy
+            output.qz = qz
+            output.qw = qw
             #
             # output.roll = math.atan2(2*(qw*qx + qy*qz), 1 - 2*(qx*qx + qy*qy))
             # output.pitch = math.asin(2*(qw*qy - qz*qx))
