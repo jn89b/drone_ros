@@ -131,7 +131,7 @@ class DroneNode(Node):
 
         # Define control types and set the default control method
         self.control_type: List[str] = ["pid_attitude", "attitude_only", "velocity_only"]
-        self.control_method: str = self.control_type[0]
+        self.control_method: str = self.control_type[1]
 
         self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()  # Uncomment if ground station listener is used
@@ -235,10 +235,10 @@ class DroneNode(Node):
         roll_traj: float = msg.roll
         pitch_traj: float = msg.pitch
         yaw_traj: float = msg.yaw
-
-        roll_rate_traj = msg.roll_rate
-        pitch_rate_traj = msg.pitch_rate
-        yaw_rate_traj = msg.yaw_rate
+        thrust_cmd = msg.thrust
+        # roll_rate_traj = msg.roll_rate
+        # pitch_rate_traj = msg.pitch_rate
+        # yaw_rate_traj = msg.yaw_rate
 
         vx_traj = msg.vx
         vy_traj = msg.vy
@@ -274,10 +274,12 @@ class DroneNode(Node):
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
+            thrust_cmd = thrust_cmd[idx_command]
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
-                                    thrust=0.5)
+                                    thrust=thrust_cmd)
+            # send airspeed command
         else:
             # Velocity-only control mode
             vel_args = {
