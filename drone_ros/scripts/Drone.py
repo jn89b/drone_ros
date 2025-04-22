@@ -130,8 +130,10 @@ class DroneNode(Node):
         self.__initPublishers()
 
         # Define control types and set the default control method
+        # PID attitude for MPC
+        # attitude-only for attitude control - Reinforcement learning
         self.control_type: List[str] = ["pid_attitude", "attitude_only", "velocity_only"]
-        self.control_method: str = self.control_type[1]
+        self.control_method: str = self.control_type[0]
 
         self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()  # Uncomment if ground station listener is used
@@ -236,9 +238,6 @@ class DroneNode(Node):
         pitch_traj: float = msg.pitch
         yaw_traj: float = msg.yaw
         thrust_cmd = msg.thrust
-        # roll_rate_traj = msg.roll_rate
-        # pitch_rate_traj = msg.pitch_rate
-        # yaw_rate_traj = msg.yaw_rate
 
         vx_traj = msg.vx
         vy_traj = msg.vy
@@ -252,22 +251,31 @@ class DroneNode(Node):
             z_cmd = z_traj[-1]
             # TODO: Fix the math model for the z orientation, something is messed up
             z_error = -z_cmd + self.ned_position[2]
-            max_pitch: float = 20.0
-            kp_pitch: float = 5.0
+            # z_error = 65 + self.ned_position[2]
+            # z_cmd = 65.0
+            # z_error = z_cmd + self.ned_position[2]
+            # print("z error: ", z_error)
+            max_pitch: float = 15.0
+            kp_pitch: float = 2.0
             pitch_cmd = kp_pitch * z_error
             pitch_cmd = np.clip(pitch_cmd, -max_pitch, max_pitch)
+            # yaw_cmd = np.rad2deg(yaw_traj[idx_command])
+            # print("yaw cmd: ", yaw_cmd)
             roll_cmd = np.rad2deg(roll_traj[idx_command])
-            
-            # Map the roll command to a yaw command for better performance with the controller
+            # # Map the roll command to a yaw command for better performance with the controller
             yaw_cmd = 0.5 * roll_cmd
+            # print("desired velocity magnitude: ", vx_traj[idx_command])
+            thrust_cmd = thrust_cmd[idx_command]
+            thrust_cmd = np.clip(thrust_cmd, 0.4, 0.7)
             print("current yaw: ", np.rad2deg(self.attitudes[2]))
             print("roll_cmd: ", roll_cmd)
             print("pitch_cmd: ", pitch_cmd)
             print("yaw_cmd: ", yaw_cmd)
+            
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
-                                    thrust=0.5)
+                                    thrust=thrust_cmd)
             
         elif self.control_method == self.control_type[1]:
             # Attitude-only control mode
