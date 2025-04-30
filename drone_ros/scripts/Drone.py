@@ -245,28 +245,11 @@ class DroneNode(Node):
         idx_command = msg.idx
 
         if self.control_method == self.control_type[0]:
-            # PID attitude control mode
-            x_cmd = x_traj[idx_command]
-            y_cmd = y_traj[idx_command]
-            z_cmd = z_traj[-1]
-            # TODO: Fix the math model for the z orientation, something is messed up
-            z_error = -z_cmd + self.ned_position[2]
-            # z_error = 65 + self.ned_position[2]
-            # z_cmd = 65.0
-            # z_error = z_cmd + self.ned_position[2]
-            # print("z error: ", z_error)
-            max_pitch: float = 15.0
-            kp_pitch: float = 2.0
-            pitch_cmd = kp_pitch * z_error
-            pitch_cmd = np.clip(pitch_cmd, -max_pitch, max_pitch)
-            # yaw_cmd = np.rad2deg(yaw_traj[idx_command])
-            # print("yaw cmd: ", yaw_cmd)
+            yaw_cmd = np.rad2deg(yaw_traj[idx_command])
+            pitch_cmd = np.rad2deg(pitch_traj[idx_command])
             roll_cmd = np.rad2deg(roll_traj[idx_command])
-            # # Map the roll command to a yaw command for better performance with the controller
-            yaw_cmd = 0.5 * roll_cmd
-            # print("desired velocity magnitude: ", vx_traj[idx_command])
             thrust_cmd = thrust_cmd[idx_command]
-            thrust_cmd = np.clip(thrust_cmd, 0.4, 0.7)
+            thrust_cmd = np.clip(thrust_cmd, 0.3, 0.7)
             print("current yaw: ", np.rad2deg(self.attitudes[2]))
             print("roll_cmd: ", roll_cmd)
             print("pitch_cmd: ", pitch_cmd)
@@ -412,8 +395,8 @@ def main(args=None):
     print("connected to drone")
 
     while rclpy.ok():
-        drone_info.publishTelemInfo()
-        rclpy.spin_once(drone_node, timeout_sec=0.05)
+        # drone_info.publishTelemInfo()
+        rclpy.spin_once(drone_node, timeout_sec=0.0)
 
 
 if __name__ == '__main__':
