@@ -19,6 +19,8 @@ Dependencies:
 import rclpy
 import numpy as np
 import math
+import mavros
+from mavros.base import STATE_QOS
 from pymavlink import mavutil
 from typing import List, Dict, Any
 from rclpy.node import Node
@@ -152,6 +154,7 @@ class DroneNode(Node):
         self.attitudes: List[float] = [0.0, 0.0, 0.0]
         self.attitude_rates: List[float] = [0.0, 0.0, 0.0]
         self.ned_position: List[float] = [0.0, 0.0, 0.0]
+        self.current_mode: str = None
 
     def __initMasterConnection(self) -> None:
         """
@@ -195,6 +198,13 @@ class DroneNode(Node):
             'trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
+
+        self.mode_sub: rclpy.subscription.Subscription = self.create_subscription(
+            mavros.system.State,
+            'mavros/state',
+            self.__modeCallback,
+            STATE_QOS)
+
 
     def __telemCallback(self, msg: Telem) -> None:
         """
@@ -244,6 +254,10 @@ class DroneNode(Node):
         vz_traj = msg.vz
         idx_command = msg.idx
 
+        if self.current_mode != "GUIDED":
+            print("Not in GUIDED mode, cannot send commands")
+            return
+
         if self.control_method == self.control_type[0]:
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
@@ -281,6 +295,16 @@ class DroneNode(Node):
             }
             self.commander.sendNEDVelocity(vel_args)
 
+    def __modeCallback(self, msg: mavros.system.State) -> None:
+        """
+        Callback function for mode changes.
+
+        Updates the current mode of the drone based on the received MAVLink message.
+
+        Args:
+            msg (mavros.system.State): The MAVLink message containing the current mode.
+        """
+        self.current_mode = msg.mode
     def yaw_rate_from_roll(self, roll_command: float, 
                            airspeed: float, g: float = 9.81) -> float:
         """
