@@ -119,7 +119,7 @@ class DroneNode(Node):
         Sets up parameters, initializes the MAVLink connection, publishers,
         subscribers, and creates instances of helper classes (Commander, DroneInfo).
         """
-        super().__init__('drone_node')
+        super().__init__('drone_node_2')
         self.get_logger().info('Drone node has been started')
 
         # Frequency interval for publishers and subscribers
@@ -167,7 +167,8 @@ class DroneNode(Node):
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
-        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string)
+        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string,
+                                                          source_system=2)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:

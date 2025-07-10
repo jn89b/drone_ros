@@ -162,12 +162,13 @@ class DroneNode(Node):
         Reads the MAVLink connection string from parameters, establishes a connection,
         and waits for the heartbeat signal to ensure the connection is active.
         """
-        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14553')
+        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14551')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
-        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string)
+        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string,
+                                                          source_system=1)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:
