@@ -48,6 +48,7 @@ ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
 install(PROGRAMS
   scripts/Drone.py
+  scripts/Drone2.py
   scripts/GSService.py
   scripts/GSInputClient.py
   scripts/logger.py

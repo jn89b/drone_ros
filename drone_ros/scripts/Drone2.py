@@ -194,13 +194,13 @@ class DroneNode(Node):
 
         self.traj_sub: rclpy.subscription.Subscription = self.create_subscription(
             CtlTraj,
-            'trajectory',
+            'trajectory_2',
             self.__trajCallback,
             self.drone_node_frequency)
 
         self.mode_sub: rclpy.subscription.Subscription = self.create_subscription(
             mavros.system.State,
-            'mavros/state',
+            'uav2/state',
             self.__modeCallback,
             STATE_QOS)
 
