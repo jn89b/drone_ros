@@ -162,13 +162,14 @@ class DroneNode(Node):
         Reads the MAVLink connection string from parameters, establishes a connection,
         and waits for the heartbeat signal to ensure the connection is active.
         """
-        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14553')
+        self.declare_parameter('mav_connection_string', 'udp:127.0.0.1:14557')
         self.mav_connection_string = self.get_parameter('mav_connection_string')\
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
         self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string,
-                                                          source_system=2)
+                                                          source_system=2,
+                                                          target_system=2)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:
@@ -178,7 +179,7 @@ class DroneNode(Node):
         Sets up the telemetry publisher for sending out drone telemetry messages.
         """
         self.telem_publisher: rclpy.publisher.Publisher = self.create_publisher(
-            Telem, 'telem', self.drone_node_frequency)
+            Telem, 'telem_2', self.drone_node_frequency)
 
     def __initSubscribers(self) -> None:
         """
@@ -189,7 +190,7 @@ class DroneNode(Node):
         """
         self.telem_sub: rclpy.subscription.Subscription = self.create_subscription(
             Telem,
-            'telem',
+            'telem_2',
             self.__telemCallback,
             self.drone_node_frequency)
 
