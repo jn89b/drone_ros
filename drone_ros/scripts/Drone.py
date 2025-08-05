@@ -134,7 +134,7 @@ class DroneNode(Node):
         # PID attitude for MPC
         # attitude-only for attitude control - Reinforcement learning
         self.control_type: List[str] = ["pid_attitude", "attitude_only", "velocity_only"]
-        self.control_method: str = self.control_type[0]
+        self.control_method: str = self.control_type[1]
 
         self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()  # Uncomment if ground station listener is used
@@ -167,8 +167,7 @@ class DroneNode(Node):
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
-        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string,
-                                                          source_system=1)
+        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:
@@ -276,7 +275,6 @@ class DroneNode(Node):
             
         elif self.control_method == self.control_type[1]:
             # Attitude-only control mode
-            print("index command: ", idx_command)
             # check if index comand out of range
             # if len(roll_traj) <= idx_command or \
             #    len(pitch_traj) <= idx_command or \

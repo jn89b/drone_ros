@@ -167,9 +167,7 @@ class DroneNode(Node):
             .get_parameter_value().string_value
         self.get_logger().info('mav_connection_string: ' + self.mav_connection_string)
 
-        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string,
-                                                          source_system=2,
-                                                          target_system=2)
+        self.master: mavutil = mavutil.mavlink_connection(self.mav_connection_string)
         self.master.wait_heartbeat()
 
     def __initPublishers(self) -> None:
