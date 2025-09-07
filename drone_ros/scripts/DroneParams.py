@@ -12,13 +12,12 @@ from rcl_interfaces.msg import SetParametersResult
 
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink2
-
 # ---------------------------
 # Helpers for MAVLink <-> ROS
 # ---------------------------
 
 # Default: only mirror these, add more later on demand
-DEFAULT_WHITELIST = {"SID_DONE", "SID_TYPE"}
+DEFAULT_WHITELIST = {"SID_DONE", "SID_TYPE", "SID_DE_RANGE", "SID_DE_BOUND"}
 
 _MAV_TYPE_TO_PY = {
     mavlink2.MAV_PARAM_TYPE_UINT8:   int,

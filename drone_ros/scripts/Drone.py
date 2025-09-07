@@ -282,7 +282,6 @@ class DroneNode(Node):
             #    len(thrust_cmd) <= idx_command:
             #     print("Index command out of range, skipping command")
             #     return
-            
             roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
             yaw_cmd = np.rad2deg(yaw_traj[idx_command])
