@@ -19,8 +19,6 @@ Dependencies:
 import rclpy
 import numpy as np
 import math
-import mavros
-from mavros.base import STATE_QOS
 from pymavlink import mavutil
 from typing import List, Dict, Any
 from rclpy.node import Node
@@ -37,6 +35,7 @@ from drone_ros.quaternion_tools import (
 from drone_ros.Commander import Commander
 from drone_ros.DroneInfo import DroneInfo
 from drone_interfaces.msg import Telem, CtlTraj
+# from drone_ros.srv import getGSInfo
 
 from drone_ros.DroneInterfaceModel import DroneInterfaceModel
 import rclpy.publisher
@@ -131,10 +130,8 @@ class DroneNode(Node):
         self.__initPublishers()
 
         # Define control types and set the default control method
-        # PID attitude for MPC
-        # attitude-only for attitude control - Reinforcement learning
         self.control_type: List[str] = ["pid_attitude", "attitude_only", "velocity_only"]
-        self.control_method: str = self.control_type[1]
+        self.control_method: str = self.control_type[-1]
 
         self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()  # Uncomment if ground station listener is used
@@ -153,7 +150,6 @@ class DroneNode(Node):
         self.attitudes: List[float] = [0.0, 0.0, 0.0]
         self.attitude_rates: List[float] = [0.0, 0.0, 0.0]
         self.ned_position: List[float] = [0.0, 0.0, 0.0]
-        self.current_mode: str = None
 
     def __initMasterConnection(self) -> None:
         """
@@ -194,16 +190,9 @@ class DroneNode(Node):
 
         self.traj_sub: rclpy.subscription.Subscription = self.create_subscription(
             CtlTraj,
-            'trajectory',
+            '/trajectory',
             self.__trajCallback,
             self.drone_node_frequency)
-
-        self.mode_sub: rclpy.subscription.Subscription = self.create_subscription(
-            mavros.system.State,
-            'mavros/state',
-            self.__modeCallback,
-            STATE_QOS)
-
 
     def __telemCallback(self, msg: Telem) -> None:
         """
@@ -246,28 +235,37 @@ class DroneNode(Node):
         roll_traj: float = msg.roll
         pitch_traj: float = msg.pitch
         yaw_traj: float = msg.yaw
-        thrust_cmd = msg.thrust
+
+        roll_rate_traj = msg.roll_rate
+        pitch_rate_traj = msg.pitch_rate
+        yaw_rate_traj = msg.yaw_rate
 
         vx_traj = msg.vx
         vy_traj = msg.vy
         vz_traj = msg.vz
         idx_command = msg.idx
-
-        if self.current_mode != "GUIDED":
-            print("Not in GUIDED mode, cannot send commands")
-            return
+        thrust_traj = msg.thrust
 
         if self.control_method == self.control_type[0]:
-            yaw_cmd = np.rad2deg(yaw_traj[idx_command])
-            pitch_cmd = np.rad2deg(pitch_traj[idx_command])
+            # PID attitude control mode
+            x_cmd = x_traj[idx_command]
+            y_cmd = y_traj[idx_command]
+            z_cmd = z_traj[-1]
+            # TODO: Fix the math model for the z orientation, something is messed up
+            z_error = -z_cmd + self.ned_position[2]
+            max_pitch: float = 20.0
+            kp_pitch: float = 5.0
+            pitch_cmd = kp_pitch * z_error
+            pitch_cmd = np.clip(pitch_cmd, -max_pitch, max_pitch)
             roll_cmd = np.rad2deg(roll_traj[idx_command])
-            thrust_cmd = thrust_cmd[idx_command]
-            thrust_cmd = np.clip(thrust_cmd, 0.3, 0.7)
+            thrust_cmd = float(thrust_traj[idx_command])
+
+            # Map the roll command to a yaw command for better performance with the controller
+            yaw_cmd = 0.5 * roll_cmd
             print("current yaw: ", np.rad2deg(self.attitudes[2]))
             print("roll_cmd: ", roll_cmd)
             print("pitch_cmd: ", pitch_cmd)
             print("yaw_cmd: ", yaw_cmd)
-            
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
@@ -275,42 +273,86 @@ class DroneNode(Node):
             
         elif self.control_method == self.control_type[1]:
             # Attitude-only control mode
-            # check if index comand out of range
-            # if len(roll_traj) <= idx_command or \
-            #    len(pitch_traj) <= idx_command or \
-            #    len(yaw_traj) <= idx_command or \
-            #    len(thrust_cmd) <= idx_command:
-            #     print("Index command out of range, skipping command")
-            #     return
-            roll_cmd = np.rad2deg(roll_traj[idx_command])
+            roll_cmd = 0.0
+            #roll_cmd = np.rad2deg(roll_traj[idx_command])
             pitch_cmd = np.rad2deg(pitch_traj[idx_command])
-            yaw_cmd = np.rad2deg(yaw_traj[idx_command])
-            thrust_cmd = thrust_cmd[idx_command]
+            # yaw_cmd = 0.0
+            thrust_cmd = float(thrust_traj[idx_command])
+            #yaw_cmd = np.rad2deg(yaw_traj[idx_command])
+            yaw_cmd = 0.0
+            print("pitch_cmd: ", pitch_cmd)
+            print("thrust cmd", thrust_cmd)
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
                                     thrust=thrust_cmd)
-            # send airspeed command
         else:
             # Velocity-only control mode
-            vel_args = {
-                'vx': vx_traj[idx_command],
-                'vy': vy_traj[idx_command],
-                'vz': vz_traj[idx_command],
-                'set_vz': False
-            }
-            self.commander.sendNEDVelocity(vel_args)
+            # vel_args = {
+            #     'vx': vx_traj[idx_command],
+            #     'vy': vy_traj[idx_command],
+            #     'vz': vz_traj[idx_command],
+            #     'set_vz': False
+            # }
+            # self.commander.sendNEDVelocity(vel_args)
+            target_heading = yaw_traj[idx_command]
+            target_altitude = z_traj[idx_command]
+            target_climb = abs(vz_traj[idx_command])
+            target_airspeed = vx_traj[idx_command]
+            
+            self.sendKinematicTarget(
+                    heading_deg=target_heading,
+                    altitude_m=target_altitude,
+                    climb_rate_ms=target_climb,
+                    airspeed_ms=target_airspeed
+                )
+                
 
-    def __modeCallback(self, msg: mavros.system.State) -> None:
+    def sendKinematicTarget(self, 
+                              heading_deg:float, 
+                              altitude_m:float, 
+                              climb_rate_ms:float, 
+                              airspeed_ms:float):
         """
-        Callback function for mode changes.
-
-        Updates the current mode of the drone based on the received MAVLink message.
-
-        Args:
-            msg (mavros.system.State): The MAVLink message containing the current mode.
+        Sends the decoupled kinematic commands: Airspeed, Altitude/Climb, and Heading.
         """
-        self.current_mode = msg.mode
+        print(f"Sending target -> Hdg: {heading_deg}°, Alt: {altitude_m}m, Vz: {climb_rate_ms}m/s, TAS: {airspeed_ms}m/s")
+
+        # 1. Command Airspeed (43000)
+        self.master.mav.command_long_send(
+            self.master.target_system, self.master.target_component,
+            mavutil.mavlink.MAV_CMD_GUIDED_CHANGE_SPEED,
+            0,            # Confirmation
+            0,            # Param 1: 0 = Airspeed, 1 = Groundspeed
+            airspeed_ms,  # Param 2: Target speed (m/s)
+            0, 0, 0, 0, 0 # Params 3-7 unused
+        )
+
+        # 2. Command Altitude and Climb Rate (43001)
+        self.master.mav.command_long_send(
+            self.master.target_system, self.master.target_component,
+            mavutil.mavlink.MAV_CMD_GUIDED_CHANGE_ALTITUDE,
+            0,            # Confirmation
+            0, 0,         # Params 1-2 unused
+            0,# Param 3: Climb/Descent rate (m/s)
+            0, 0, 0,      # Params 4-6 unused
+            altitude_m    # Param 7: Target Altitude (AMSL in meters)
+        )
+
+        # 3. Command Heading (43002)
+        self.master.mav.command_long_send(
+            self.master.target_system, self.master.target_component,
+            mavutil.mavlink.MAV_CMD_GUIDED_CHANGE_HEADING,
+            0,            # Confirmation
+            0,            # Param 1: 0 = Course over ground, 1 = Magnetic heading
+            heading_deg,  # Param 2: Target heading (degrees)
+            30, #deg/s
+            0, 
+            0, 
+            0, 
+            0 # Params 3-7 unused
+        )
+
     def yaw_rate_from_roll(self, roll_command: float, 
                            airspeed: float, g: float = 9.81) -> float:
         """
@@ -384,8 +426,12 @@ class DroneNode(Node):
         master = self.master
 
         if yaw_angle is None:
-            yaw_angle = master.messages['ATTITUDE'].yaw
-
+            yaw_angle = math.degrees(master.messages['ATTITUDE'].yaw)
+        
+        # Standard MAVLink bitmask for Attitude-Only control (Ignore body rates)
+        # 1 (Roll Rate) + 2 (Pitch Rate) + 4 (Yaw Rate) = 7 (0b00000111)
+        type_mask = 0b00000000 if use_yaw_rate else 0b00000111
+        
         master.mav.set_attitude_target_send(
             0,  # time_boot_ms (not used)
             master.target_system,  # target system
@@ -425,8 +471,8 @@ def main(args=None):
     print("connected to drone")
 
     while rclpy.ok():
-        # drone_info.publishTelemInfo()
-        rclpy.spin_once(drone_node, timeout_sec=0.0)
+        drone_info.publishTelemInfo()
+        rclpy.spin_once(drone_node, timeout_sec=0.05)
 
 
 if __name__ == '__main__':
