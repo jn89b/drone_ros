@@ -63,11 +63,7 @@ def compute_pursuit_angle(enu_state: np.array,
     """
     dx: float = target_x - enu_state[0]
     dy: float = target_y - enu_state[1]
-    print("dx is: ", dx)
-    print("dy is: ", dy)
     enu_yaw_cmd: float = np.arctan2(dy, dx)
-    distance = np.sqrt(dx**2 + dy**2)
-    print("distance is: ", distance)
     return enu_yaw_cmd
 
 
@@ -262,10 +258,6 @@ class DroneNode(Node):
 
             # Map the roll command to a yaw command for better performance with the controller
             yaw_cmd = 0.5 * roll_cmd
-            print("current yaw: ", np.rad2deg(self.attitudes[2]))
-            print("roll_cmd: ", roll_cmd)
-            print("pitch_cmd: ", pitch_cmd)
-            print("yaw_cmd: ", yaw_cmd)
             self.sendAttitudeTarget(roll_angle=roll_cmd,
                                     pitch_angle=pitch_cmd,
                                     yaw_angle=yaw_cmd,
@@ -287,14 +279,6 @@ class DroneNode(Node):
                                     yaw_angle=yaw_cmd,
                                     thrust=thrust_cmd)
         else:
-            # Velocity-only control mode
-            # vel_args = {
-            #     'vx': vx_traj[idx_command],
-            #     'vy': vy_traj[idx_command],
-            #     'vz': vz_traj[idx_command],
-            #     'set_vz': False
-            # }
-            # self.commander.sendNEDVelocity(vel_args)
             target_heading = yaw_traj[idx_command]
             target_altitude = z_traj[idx_command]
             target_climb = abs(vz_traj[idx_command])
@@ -311,7 +295,7 @@ class DroneNode(Node):
     def sendKinematicTarget(self, 
                               heading_deg:float, 
                               altitude_m:float, 
-                              climb_rate_ms:float, 
+                               climb_rate_ms:float, 
                               airspeed_ms:float):
         """
         Sends the decoupled kinematic commands: Airspeed, Altitude/Climb, and Heading.
@@ -346,7 +330,7 @@ class DroneNode(Node):
             0,            # Confirmation
             0,            # Param 1: 0 = Course over ground, 1 = Magnetic heading
             heading_deg,  # Param 2: Target heading (degrees)
-            30, #deg/s
+            20, #deg/s
             0, 
             0, 
             0, 
