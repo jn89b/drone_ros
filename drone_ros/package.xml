@@ -19,6 +19,7 @@
 
   <depend>rclcpp</depend>
   <depend>rclpy</depend>
+  <depend>drone_interfaces</depend>
   
 
   <exec_depend>rosidl_default_runtime</exec_depend>

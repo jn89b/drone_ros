@@ -135,9 +135,12 @@ class DroneNode(Node):
 
         self.commander: Commander = Commander(self.master)
         # self.gs_listener = GSListenerClient()  # Uncomment if ground station listener is used
-        self.drone_info: DroneInfo = DroneInfo(self.master,
-                                               self.telem_publisher,
-                                               self.drone_node_frequency)
+        self.drone_info: DroneInfo = DroneInfo(
+            self.master,
+            self.telem_publisher,
+            self.drone_node_frequency,
+            clock=self.get_clock(),
+        )
 
         self.__initSubscribers()
 

@@ -63,6 +63,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   set(_pytest_tests
     tests/testDroneCommander.py
+    tests/test_telemetry_header.py
     # Add other test files here
   )
   foreach(_test_path ${_pytest_tests})
